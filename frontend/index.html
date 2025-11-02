@@ -6,43 +6,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
-      --bg:#0b1020; --panel:#121a2e; --muted:#a8b3cf; --text:#e6ecff; --accent:#70b8ff; --danger:#ff6b6b; --ok:#6bffa8;
+      --bg: #f8f9fa; --panel: #ffffff; --muted: #6c757d; --text: #212529; --accent: #007bff; --danger: #dc3545; --ok: #28a745;
     }
     * { box-sizing: border-box; }
     body {
       margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      background: linear-gradient(180deg, #0b1020, #0b152a); color: var(--text);
+      background: var(--bg); color: var(--text);
     }
     header {
-      padding: 16px 20px; border-bottom: 1px solid #1e2a4a; background: #0b1224cc; position: sticky; top:0; backdrop-filter: blur(8px); z-index:10;
+      padding: 16px 20px; border-bottom: 1px solid #dee2e6; background: #ffffffcc; position: sticky; top:0; backdrop-filter: blur(8px); z-index:10;
       display:flex; align-items:center; gap:14px;
     }
     .dot { width:10px; height:10px; border-radius:50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
     h1 { margin:0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
-    main { display:grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 16px; min-height: calc(100vh - 64px); }
-    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+    #sidebar-toggle { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text); }
+    #sidebar { position: fixed; top: 64px; left: 0; height: calc(100% - 64px); width: 380px; background-color: var(--panel); border-right: 1px solid #dee2e6; padding: 16px; z-index: 100; transform: translateX(0); transition: transform 0.3s ease-in-out; box-shadow: 0 0 30px rgba(0,0,0,.1); }
+    #sidebar.closed { transform: translateX(-100%); }
+    #main-content { margin-left: 380px; transition: margin-left 0.3s ease-in-out; padding: 16px; min-height: calc(100vh - 64px); }
+    #main-content.sidebar-closed { margin-left: 0; }
+    @media (max-width: 980px) { 
+      #sidebar { box-shadow: none; }
+      #main-content { margin-left: 0; } 
+      #sidebar.closed { display: none; }
+    }
     .panel {
-      background: radial-gradient(1200px 500px at -10% -40%, #1a2a52, #10162a 50%, #0d1426 70%), var(--panel);
-      border: 1px solid #1c2a4d; border-radius: 12px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 50px rgba(255,255,255,.03);
+      background: var(--panel);
+      border: 1px solid #dee2e6; border-radius: 12px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.05);
     }
     .section-title { font-size: 13px; text-transform: uppercase; letter-spacing:.12em; color: var(--muted); margin: 0 0 8px 2px; }
     .mic-wrap { display:flex; align-items:center; gap:10px; }
     #micBtn {
-      appearance:none; border:1px solid #2b3e72; background:
-        radial-gradient(220px 80px at 20% 10%, #3a61b9, #1d2d57 60%, #0f1832 95%),
-        linear-gradient(180deg, rgba(110,165,255,.2), rgba(20,35,75,.2));
+      appearance:none; border:1px solid #007bff; background: #007bff;
       color:#fff; border-radius: 50%; padding: 14px; font-weight:600; cursor:pointer;
-      box-shadow: 0 6px 16px rgba(20,40,90,.45), inset 0 0 24px rgba(120,170,255,.12);
+      box-shadow: 0 6px 16px rgba(0, 123, 255, 0.3);
       transition: transform .06s ease, box-shadow .12s ease, background .2s ease;
       width: 50px;
       height: 50px;
       font-size: 24px;
     }
-    #micBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(20,40,90,.55), inset 0 0 26px rgba(120,170,255,.16); }
+    #micBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(0, 123, 255, 0.4); }
     #micBtn.recording {
-      border-color:#6b1d2d;
-      background: radial-gradient(240px 80px at 20% 10%, #b93a60, #571d2d 60%, #320f18 95%), linear-gradient(180deg, rgba(255,110,140,.2), rgba(75,20,35,.2));
-      box-shadow: 0 6px 16px rgba(90,20,40,.5), 0 0 18px rgba(255,90,110,.3), inset 0 0 24px rgba(255,120,160,.2);
+      border-color: var(--danger);
+      background: var(--danger);
+      box-shadow: 0 6px 16px rgba(220, 53, 69, 0.4);
     }
     #micHint { color: var(--muted); font-size: 12px; }
     .kv { display:grid; grid-template-columns: 110px 1fr; font-size: 13px; gap: 6px 10px; color: var(--muted); }
@@ -50,31 +56,30 @@
     .status {
       display:flex; align-items:center; gap:10px; flex-wrap: wrap; margin-top: 10px;
     }
-    .pill { font-size: 12px; padding: 6px 10px; border-radius: 999px; border:1px solid #25345c; color: var(--muted); }
-    .pill.ok { color:#0f0; border-color:#1f5c25; }
-    .pill.warn { color:#ffc966; border-color:#5c4a25; }
-    .pill.err { color:#ff8a8a; border-color:#5c2525; }
+    .pill { font-size: 12px; padding: 6px 10px; border-radius: 999px; border:1px solid #ced4da; color: var(--muted); }
+    .pill.ok { color: var(--ok); border-color: var(--ok); }
+    .pill.warn { color: #ffc107; border-color: #ffc107; }
+    .pill.err { color: var(--danger); border-color: var(--danger); }
     #log {
       height: 180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
-      background: #0a1022; border-radius: 8px; border:1px solid #18244a; padding: 8px; color:#cfd8ff;
+      background: #e9ecef; border-radius: 8px; border:1px solid #ced4da; padding: 8px; color:#495057;
       white-space: pre-wrap;
       word-break: break-all;
     }
     #pdfFrame {
-      width:100%; height: calc(100vh - 120px); border:1px solid #1c2a4d; border-radius: 12px; background:#0a0f1f;
-      box-shadow: inset 0 0 50px rgba(255,255,255,.02);
+      width:100%; height: calc(100vh - 120px); border:1px solid #dee2e6; border-radius: 12px; background:#f8f9fa;
     }
-    .toast { margin-top: 10px; font-size: 13px; color: #cfe5ff; }
+    .toast { margin-top: 10px; font-size: 13px; color: var(--text); }
     a { color: var(--accent); }
-  </style>
 </head>
 <body>
   <header>
+    <button id="sidebar-toggle" aria-label="Toggle sidebar">☰</button>
     <span class="dot" aria-hidden="true"></span>
     <h1>XYZCare Audio Assistant</h1>
   </header>
 
-  <main>
+  <div id="sidebar">
     <section class="panel" aria-label="Voice Controls">
       <p class="section-title">Controls</p>
       <div class="mic-wrap">
@@ -97,12 +102,14 @@
         <div class="toast" id="toast"></div>
       </div>
     </section>
+  </div>
 
+  <div id="main-content">
     <section class="panel" aria-label="Manual Viewer">
       <p class="section-title">Manual</p>
       <iframe id="pdfFrame" title="Manual PDF Viewer"></iframe>
     </section>
-  </main>
+  </div>
 
   <script>
     (function () {
@@ -112,6 +119,14 @@
       const logEl = document.getElementById('log');
       const toastEl = document.getElementById('toast');
       const pdfFrame = document.getElementById('pdfFrame');
+      const sidebar = document.getElementById('sidebar');
+      const mainContent = document.getElementById('main-content');
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+
+      sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('closed');
+        mainContent.classList.toggle('sidebar-closed');
+      });
 
       let mediaRecorder = null;
       let chunks = [];

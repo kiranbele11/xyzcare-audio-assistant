@@ -27,3 +27,8 @@ boto3
 
 # NumPy for FAISS
 numpy
+
+# Pytorch for audio processing
+torch
+torchaudio
+librosa

@@ -1,0 +1,22 @@
+{
+  "manuals": [
+    {
+      "manual_id": "PixelFold",
+      "title": "Pixel 9 Pro Fold Repair Manual V2",
+      "filename": "Pixel 9 Pro Fold Repair Manual V2.pdf",
+      "aliases": ["Pixel 9 Fold Pro", "Pixel Fold", "Pixel 9 Pro Fold"]
+    },
+    {
+      "manual_id": "Pixel9",
+      "title": "Pixel 9 Pro Repair Manual V1.1",
+      "filename": "Pixel 9 Pro Repair Manual V1.1.pdf",
+      "aliases": ["Pixel 9 pro", "Pixel pro", "Latest Pixel Pro", "Pixel Pro 9"]
+    },
+    {
+      "manual_id": "Fridge",
+      "title": "LG Refrigerator",
+      "filename": "Refrigerator_Model_GR.pdf",
+      "aliases": ["Fridge", "LG Fridge", "LG Refrigerator", "Model GR"]
+    }
+  ]
+}

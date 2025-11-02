@@ -1,0 +1,18 @@
+fastapi
+uvicorn[standard]
+pydantic>=2
+python-multipart
+aiofiles
+tenacity
+openai>=1.51.0
+faiss-cpu
+rapidfuzz
+pymupdf
+python-dotenv
+numpy
+# For local STT (transformers)
+torch
+torchaudio
+transformers
+optimum
+librosa

@@ -1,0 +1,56 @@
+{
+  "name": "XYZCare RAG",
+  "description": "Voice-controlled manual search system for repair technicians",
+  "repository": "https://github.com/YOUR_USERNAME/xyzcare-rag",
+  "keywords": ["python", "fastapi", "rag", "speech-to-text", "postgres"],
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql:mini",
+      "as": "DATABASE"
+    }
+  ],
+  "env": {
+    "USE_POSTGRES": {
+      "description": "Use PostgreSQL database",
+      "value": "true",
+      "required": true
+    },
+    "USE_S3": {
+      "description": "Use AWS S3 for storage (set to false for initial deployment)",
+      "value": "false",
+      "required": true
+    },
+    "STT_PROVIDER": {
+      "description": "Speech-to-text provider: openai or whisper_local",
+      "value": "openai",
+      "required": true
+    },
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key for embeddings and STT",
+      "required": true
+    },
+    "EMBEDDING_MODEL": {
+      "description": "OpenAI embedding model",
+      "value": "text-embedding-3-small"
+    },
+    "FTS_TOP_K": {
+      "description": "Number of candidates from full-text search",
+      "value": "20"
+    },
+    "ALIAS_MATCH_THRESHOLD": {
+      "description": "Fuzzy match threshold for product names (0.0-1.0)",
+      "value": "0.85"
+    }
+  }
+}

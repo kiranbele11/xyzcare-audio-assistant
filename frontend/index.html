@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>XYZCare Voice Manual Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg:#0b1020; --panel:#121a2e; --muted:#a8b3cf; --text:#e6ecff; --accent:#70b8ff; --danger:#ff6b6b; --ok:#6bffa8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(180deg, #0b1020, #0b152a); color: var(--text);
+    }
+    header {
+      padding: 16px 20px; border-bottom: 1px solid #1e2a4a; background: #0b1224cc; position: sticky; top:0; backdrop-filter: blur(8px); z-index:10;
+      display:flex; align-items:center; gap:14px;
+    }
+    .dot { width:10px; height:10px; border-radius:50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    h1 { margin:0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+    main { display:grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 16px; min-height: calc(100vh - 64px); }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+    .panel {
+      background: radial-gradient(1200px 500px at -10% -40%, #1a2a52, #10162a 50%, #0d1426 70%), var(--panel);
+      border: 1px solid #1c2a4d; border-radius: 12px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 50px rgba(255,255,255,.03);
+    }
+    .section-title { font-size: 13px; text-transform: uppercase; letter-spacing:.12em; color: var(--muted); margin: 0 0 8px 2px; }
+    .mic-wrap { display:flex; align-items:center; gap:10px; }
+    #micBtn {
+      appearance:none; border:1px solid #2b3e72; background:
+        radial-gradient(220px 80px at 20% 10%, #3a61b9, #1d2d57 60%, #0f1832 95%),
+        linear-gradient(180deg, rgba(110,165,255,.2), rgba(20,35,75,.2));
+      color:#fff; border-radius: 24px; padding: 10px 14px; font-weight:600; cursor:pointer;
+      box-shadow: 0 6px 16px rgba(20,40,90,.45), inset 0 0 24px rgba(120,170,255,.12);
+      transition: transform .06s ease, box-shadow .12s ease, background .2s ease;
+    }
+    #micBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(20,40,90,.55), inset 0 0 26px rgba(120,170,255,.16); }
+    #micBtn.recording {
+      border-color:#6b1d2d;
+      background: radial-gradient(240px 80px at 20% 10%, #b93a60, #571d2d 60%, #320f18 95%), linear-gradient(180deg, rgba(255,110,140,.2), rgba(75,20,35,.2));
+      box-shadow: 0 6px 16px rgba(90,20,40,.5), 0 0 18px rgba(255,90,110,.3), inset 0 0 24px rgba(255,120,160,.2);
+    }
+    #micHint { color: var(--muted); font-size: 12px; }
+    .kv { display:grid; grid-template-columns: 110px 1fr; font-size: 13px; gap: 6px 10px; color: var(--muted); }
+    .kv div.value { color: var(--text); font-weight: 600; }
+    .status {
+      display:flex; align-items:center; gap:10px; flex-wrap: wrap; margin-top: 10px;
+    }
+    .pill { font-size: 12px; padding: 6px 10px; border-radius: 999px; border:1px solid #25345c; color: var(--muted); }
+    .pill.ok { color:#0f0; border-color:#1f5c25; }
+    .pill.warn { color:#ffc966; border-color:#5c4a25; }
+    .pill.err { color:#ff8a8a; border-color:#5c2525; }
+    #log { height: 180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+      background: #0a1022; border-radius: 8px; border:1px solid #18244a; padding: 8px; color:#cfd8ff; }
+    #pdfFrame {
+      width:100%; height: calc(100vh - 120px); border:1px solid #1c2a4d; border-radius: 12px; background:#0a0f1f;
+      box-shadow: inset 0 0 50px rgba(255,255,255,.02);
+    }
+    .toast { margin-top: 10px; font-size: 13px; color: #cfe5ff; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="dot" aria-hidden="true"></span>
+    <h1>XYZCare Voice Manual Demo</h1>
+    <div class="pill" id="readyPill" style="margin-left:8px;">Ready</div>
+    <div class="pill" id="latencyPill" title="Last interaction latency">—</div>
+  </header>
+
+  <main>
+    <section class="panel" aria-label="Voice Controls">
+      <p class="section-title">Voice</p>
+      <div class="mic-wrap">
+        <button id="micBtn" aria-pressed="false" aria-label="Hold to speak or click to start/stop recording">
+          🎤 Speak
+        </button>
+        <span id="micHint">First: “Widget Pro 300 manual”. Then: “How to replace the belt?”</span>
+      </div>
+
+      <div class="status">
+        <div class="kv" style="margin-top:10px; flex: 1 1 100%;">
+          <div>Mode</div><div class="value" id="modeVal">Resolve manual</div>
+          <div>Manual</div><div class="value" id="manualVal">—</div>
+          <div>Transcript</div><div class="value" id="transcriptVal">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="section-title">Log</div>
+        <pre id="log" aria-live="polite"></pre>
+        <div class="toast" id="toast"></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Manual Viewer">
+      <p class="section-title">Manual</p>
+      <iframe id="pdfFrame" title="Manual PDF Viewer"></iframe>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const micBtn = document.getElementById('micBtn');
+      const modeVal = document.getElementById('modeVal');
+      const manualVal = document.getElementById('manualVal');
+      const transcriptVal = document.getElementById('transcriptVal');
+      const logEl = document.getElementById('log');
+      const toastEl = document.getElementById('toast');
+      const pdfFrame = document.getElementById('pdfFrame');
+      const latencyPill = document.getElementById('latencyPill');
+
+      let mediaRecorder = null;
+      let chunks = [];
+      let isRecording = false;
+      let state = {
+        manualId: null,
+        manualTitle: null,
+        lastLatencyMs: null,
+      };
+
+      function log(msg) {
+        const ts = new Date().toISOString().split('T')[1].replace('Z','');
+        logEl.textContent += '[' + ts + '] ' + msg + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function toast(msg, persist = false) {
+        toastEl.textContent = msg;
+        if (!persist) {
+          setTimeout(() => { toastEl.textContent = ''; }, 4000);
+        }
+      }
+      
+      function clearToast() {
+        toastEl.textContent = '';
+      }
+
+      function setLatency(ms) {
+        state.lastLatencyMs = ms;
+        latencyPill.textContent = ms ? (ms.toFixed(0) + ' ms') : '—';
+        latencyPill.className = 'pill ' + (ms <= 2200 ? 'ok' : (ms <= 3000 ? 'warn' : 'err'));
+      }
+
+      function setModeText() {
+        modeVal.textContent = state.manualId ? 'Ask within manual' : 'Resolve manual';
+      }
+
+      function chooseMime() {
+        const preferred = ['audio/webm;codecs=opus', 'audio/webm'];
+        for (const m of preferred) {
+          if (MediaRecorder.isTypeSupported(m)) return m;
+        }
+        return ''; // Let browser decide
+      }
+
+      async function startRecording() {
+        if (isRecording) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          toast('Microphone not available.');
+          log('MediaDevices.getUserMedia not supported');
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mimeType = chooseMime();
+          chunks = [];
+          mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+          mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+          mediaRecorder.onstop = onStopRecording;
+          mediaRecorder.start();
+          isRecording = true;
+          micBtn.classList.add('recording');
+          micBtn.setAttribute('aria-pressed', 'true');
+          log('Recording started...');
+          // Auto-stop after 5 seconds for snappy demo
+          setTimeout(() => { if (isRecording) stopRecording(); }, 5000);
+        } catch (err) {
+          console.error(err);
+          toast('Failed to access microphone.');
+          log('Error starting recording: ' + (err && err.message ? err.message : String(err)));
+        }
+      }
+
+      function stopRecording() {
+        if (!isRecording) return;
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        micBtn.setAttribute('aria-pressed', 'false');
+        try {
+          mediaRecorder.stop();
+          log('Recording stopped. Processing...');
+        } catch (e) {
+          log('Error stopping recorder: ' + e);
+        }
+      }
+
+      async function onStopRecording() {
+        try {
+          const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
+          await handleUtterance(blob);
+        } catch (e) {
+          log('onStop error: ' + e);
+        } finally {
+          // Cleanup tracks
+          try {
+            mediaRecorder.stream.getTracks().forEach(t => t.stop());
+          } catch {}
+        }
+      }
+
+      async function handleUtterance(audioBlob) {
+        clearToast(); // Clear any persistent toast when starting new utterance
+        const t0 = performance.now();
+        transcriptVal.textContent = '…';
+        const form = new FormData();
+        const ext = (audioBlob.type.includes('wav') ? 'wav' : 'webm');
+        form.append('file', audioBlob, 'audio.' + ext);
+
+        let transcript = null;
+        try {
+          const resp = await fetch('/api/stt', { method: 'POST', body: form });
+          const t1 = performance.now();
+          setLatency(t1 - t0);
+          if (!resp.ok) {
+            const msg = 'STT error: ' + resp.status + ' ' + resp.statusText;
+            toast(msg);
+            log(msg);
+            transcriptVal.textContent = '—';
+            return;
+          }
+          const data = await resp.json();
+          transcript = (data && data.transcript) ? data.transcript.trim() : '';
+          transcriptVal.textContent = transcript || '—';
+          log('Transcript: ' + transcript);
+
+          if (!transcript) {
+            toast('No speech detected.');
+            return;
+          }
+
+          if (!state.manualId) {
+            await resolveManual(transcript);
+          } else {
+            // Check if user is trying to switch manuals by mentioning another product
+            // If transcript looks like a manual name, try to resolve it
+            const lowerTranscript = transcript.toLowerCase();
+            const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro'];
+            const hasManualKeyword = manualKeywords.some(kw => lowerTranscript.includes(kw));
+            
+            if (hasManualKeyword && !lowerTranscript.includes('?') && !lowerTranscript.includes('how') && !lowerTranscript.includes('what')) {
+              // Likely trying to switch manuals
+              await resolveManual(transcript);
+            } else {
+              // Search within current manual
+              await askWithinManual(transcript);
+            }
+          }
+        } catch (e) {
+          const t1 = performance.now();
+          setLatency(t1 - t0);
+          toast('Network error during STT.');
+          log('STT exception: ' + e);
+        }
+      }
+
+      async function resolveManual(query) {
+        const url = '/api/manual/resolve?q=' + encodeURIComponent(query);
+        log('Resolving manual: ' + query);
+        const t0 = performance.now();
+        try {
+          const resp = await fetch(url);
+          const t1 = performance.now();
+          setLatency(t1 - t0);
+          if (!resp.ok) {
+            toast('Manual resolution failed (' + resp.status + ').');
+            log('Resolve error: ' + resp.status + ' ' + resp.statusText);
+            return;
+          }
+          const data = await resp.json();
+          // Expected: { manual_id, title, filename }
+          if (!data.manual_id) {
+            toast('Ambiguous. Please be more specific.');
+            log('Resolve response ambiguous: ' + JSON.stringify(data));
+            return;
+          }
+          // Only switch manual if it's different from current one
+          if (state.manualId !== data.manual_id) {
+            state.manualId = data.manual_id;
+            state.manualTitle = data.title || data.filename || ('Manual ' + data.manual_id);
+            manualVal.textContent = state.manualTitle;
+            setModeText();
+
+            const pdfUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
+            pdfFrame.src = pdfUrl + '#page=1';
+            toast('Manual loaded: ' + state.manualTitle);
+            log('Loaded PDF: ' + pdfUrl);
+          } else {
+            toast('Already viewing this manual.');
+            log('Manual already loaded: ' + state.manualTitle);
+          }
+        } catch (e) {
+          toast('Error resolving manual.');
+          log('Resolve exception: ' + e);
+        }
+      }
+
+      async function askWithinManual(question) {
+        if (!state.manualId) return;
+        const url = '/api/manual/' + encodeURIComponent(state.manualId) + '/search';
+        log('Searching within manual: ' + question);
+        const t0 = performance.now();
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+          });
+          const t1 = performance.now();
+          setLatency(t1 - t0);
+          if (!resp.ok) {
+            toast('Search failed (' + resp.status + ').');
+            log('Search error: ' + resp.status + ' ' + resp.statusText);
+            return;
+          }
+          const data = await resp.json();
+          // Expected: { page, score, snippet }
+          if (!data.page) {
+            toast('No relevant section found.');
+            log('Search response: ' + JSON.stringify(data));
+            return;
+          }
+          jumpToPage(data.page);
+          const summary = data.snippet ? (' — ' + data.snippet.slice(0, 140) + (data.snippet.length > 140 ? '…' : '')) : '';
+          toast('📄 Page ' + data.page + summary, true); // Persistent toast
+          log('Rerank score: ' + (data.score !== undefined && data.score !== null ? data.score.toFixed(3) : 'n/a'));
+        } catch (e) {
+          toast('Error searching manual.');
+          log('Search exception: ' + e);
+        }
+      }
+
+      function jumpToPage(pageNum) {
+        if (!state.manualId) return;
+        const base = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
+        // Force reload with timestamp to ensure browser processes the page change
+        const timestamp = new Date().getTime();
+        const newSrc = base + '?t=' + timestamp + '#page=' + encodeURIComponent(pageNum);
+        pdfFrame.src = newSrc;
+        log('Viewer navigated to page ' + pageNum);
+      }
+
+      // Wire UI
+      micBtn.addEventListener('click', () => {
+        if (isRecording) stopRecording(); else startRecording();
+      });
+
+      // Initial mode text
+      setModeText();
+      log('UI loaded. Click the mic to speak.');
+    })();
+  </script>
+</body>
+</html>

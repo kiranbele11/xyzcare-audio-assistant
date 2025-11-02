@@ -1,18 +1,29 @@
+# Web framework
 fastapi
 uvicorn[standard]
 pydantic>=2
 python-multipart
 aiofiles
 tenacity
+
+# OpenAI for embeddings and STT
 openai>=1.51.0
+
+# Vector search
 faiss-cpu
-rapidfuzz
-pymupdf
+
+# Database
+psycopg2-binary
 python-dotenv
+
+# PDF processing
+PyMuPDF
+
+# Fuzzy string matching
+rapidfuzz
+
+# AWS S3 (for future use)
+boto3
+
+# NumPy for FAISS
 numpy
-# For local STT (transformers)
-torch
-torchaudio
-transformers
-optimum
-librosa

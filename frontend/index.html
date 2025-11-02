@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>XYZCare Voice Manual Demo</title>
+  <title>XYZCare Audio Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
@@ -31,9 +31,12 @@
       appearance:none; border:1px solid #2b3e72; background:
         radial-gradient(220px 80px at 20% 10%, #3a61b9, #1d2d57 60%, #0f1832 95%),
         linear-gradient(180deg, rgba(110,165,255,.2), rgba(20,35,75,.2));
-      color:#fff; border-radius: 24px; padding: 10px 14px; font-weight:600; cursor:pointer;
+      color:#fff; border-radius: 50%; padding: 14px; font-weight:600; cursor:pointer;
       box-shadow: 0 6px 16px rgba(20,40,90,.45), inset 0 0 24px rgba(120,170,255,.12);
       transition: transform .06s ease, box-shadow .12s ease, background .2s ease;
+      width: 50px;
+      height: 50px;
+      font-size: 24px;
     }
     #micBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(20,40,90,.55), inset 0 0 26px rgba(120,170,255,.16); }
     #micBtn.recording {
@@ -51,8 +54,12 @@
     .pill.ok { color:#0f0; border-color:#1f5c25; }
     .pill.warn { color:#ffc966; border-color:#5c4a25; }
     .pill.err { color:#ff8a8a; border-color:#5c2525; }
-    #log { height: 180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
-      background: #0a1022; border-radius: 8px; border:1px solid #18244a; padding: 8px; color:#cfd8ff; }
+    #log {
+      height: 180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+      background: #0a1022; border-radius: 8px; border:1px solid #18244a; padding: 8px; color:#cfd8ff;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
     #pdfFrame {
       width:100%; height: calc(100vh - 120px); border:1px solid #1c2a4d; border-radius: 12px; background:#0a0f1f;
       box-shadow: inset 0 0 50px rgba(255,255,255,.02);
@@ -64,24 +71,21 @@
 <body>
   <header>
     <span class="dot" aria-hidden="true"></span>
-    <h1>XYZCare Voice Manual Demo</h1>
-    <div class="pill" id="readyPill" style="margin-left:8px;">Ready</div>
-    <div class="pill" id="latencyPill" title="Last interaction latency">—</div>
+    <h1>XYZCare Audio Assistant</h1>
   </header>
 
   <main>
     <section class="panel" aria-label="Voice Controls">
-      <p class="section-title">Voice</p>
+      <p class="section-title">Controls</p>
       <div class="mic-wrap">
         <button id="micBtn" aria-pressed="false" aria-label="Hold to speak or click to start/stop recording">
-          🎤 Speak
+          🎤
         </button>
-        <span id="micHint">First: “Widget Pro 300 manual”. Then: “How to replace the belt?”</span>
+        <span id="micHint">Usage: Say 'LG Refrigerator Manual', then 'Load Driver Circuit'</span>
       </div>
 
       <div class="status">
         <div class="kv" style="margin-top:10px; flex: 1 1 100%;">
-          <div>Mode</div><div class="value" id="modeVal">Resolve manual</div>
           <div>Manual</div><div class="value" id="manualVal">—</div>
           <div>Transcript</div><div class="value" id="transcriptVal">—</div>
         </div>
@@ -103,13 +107,11 @@
   <script>
     (function () {
       const micBtn = document.getElementById('micBtn');
-      const modeVal = document.getElementById('modeVal');
       const manualVal = document.getElementById('manualVal');
       const transcriptVal = document.getElementById('transcriptVal');
       const logEl = document.getElementById('log');
       const toastEl = document.getElementById('toast');
       const pdfFrame = document.getElementById('pdfFrame');
-      const latencyPill = document.getElementById('latencyPill');
 
       let mediaRecorder = null;
       let chunks = [];
@@ -135,16 +137,6 @@
       
       function clearToast() {
         toastEl.textContent = '';
-      }
-
-      function setLatency(ms) {
-        state.lastLatencyMs = ms;
-        latencyPill.textContent = ms ? (ms.toFixed(0) + ' ms') : '—';
-        latencyPill.className = 'pill ' + (ms <= 2200 ? 'ok' : (ms <= 3000 ? 'warn' : 'err'));
-      }
-
-      function setModeText() {
-        modeVal.textContent = state.manualId ? 'Ask within manual' : 'Resolve manual';
       }
 
       function chooseMime() {
@@ -222,7 +214,6 @@
         try {
           const resp = await fetch('/api/stt', { method: 'POST', body: form });
           const t1 = performance.now();
-          setLatency(t1 - t0);
           if (!resp.ok) {
             const msg = 'STT error: ' + resp.status + ' ' + resp.statusText;
             toast(msg);
@@ -259,7 +250,6 @@
           }
         } catch (e) {
           const t1 = performance.now();
-          setLatency(t1 - t0);
           toast('Network error during STT.');
           log('STT exception: ' + e);
         }
@@ -272,7 +262,6 @@
         try {
           const resp = await fetch(url);
           const t1 = performance.now();
-          setLatency(t1 - t0);
           if (!resp.ok) {
             toast('Manual resolution failed (' + resp.status + ').');
             log('Resolve error: ' + resp.status + ' ' + resp.statusText);
@@ -290,7 +279,6 @@
             state.manualId = data.manual_id;
             state.manualTitle = data.title || data.filename || ('Manual ' + data.manual_id);
             manualVal.textContent = state.manualTitle;
-            setModeText();
 
             const pdfUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
             pdfFrame.src = pdfUrl + '#page=1';
@@ -318,7 +306,6 @@
             body: JSON.stringify({ question })
           });
           const t1 = performance.now();
-          setLatency(t1 - t0);
           if (!resp.ok) {
             toast('Search failed (' + resp.status + ').');
             log('Search error: ' + resp.status + ' ' + resp.statusText);
@@ -356,8 +343,6 @@
         if (isRecording) stopRecording(); else startRecording();
       });
 
-      // Initial mode text
-      setModeText();
       log('UI loaded. Click the mic to speak.');
     })();
   </script>

@@ -34,11 +34,11 @@ from openai import OpenAI
 from rapidfuzz import process as rf_process, fuzz as rf_fuzz
 
 # For local STT
-import torch
-import torchaudio
-from transformers import pipeline
-import librosa
-import subprocess
+# import torch
+# import torchaudio
+# from transformers import pipeline
+# import librosa
+# import subprocess
 
 # --- Env / Config ---
 load_dotenv()
@@ -61,23 +61,23 @@ ENABLE_TIMING_LOGS = os.getenv("ENABLE_TIMING_LOGS", "true").lower() == "true"
 
 
 # --- Local STT ---
-stt_pipeline = None
+# stt_pipeline = None
 
-def get_stt_pipeline():
-    global stt_pipeline
-    if stt_pipeline is None:
-        try:
-            logger.info("Initializing local STT pipeline...")
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-            stt_pipeline = pipeline(
-                "automatic-speech-recognition",
-                model="openai/whisper-base.en",
-                device=device
-            )
-            logger.info("Local STT pipeline initialized.")
-        except Exception as e:
-            logger.exception("Failed to initialize local STT pipeline: %s", e)
-    return stt_pipeline
+# def get_stt_pipeline():
+#     global stt_pipeline
+#     if stt_pipeline is None:
+#         try:
+#             logger.info("Initializing local STT pipeline...")
+#             device = "cuda:0" if torch.cuda.is_available() else "cpu"
+#             stt_pipeline = pipeline(
+#                 "automatic-speech-recognition",
+#                 model="openai/whisper-base.en",
+#                 device=device
+#             )
+#             logger.info("Local STT pipeline initialized.")
+#         except Exception as e:
+#             logger.exception("Failed to initialize local STT pipeline: %s", e)
+#     return stt_pipeline
 
 
 # --- App ---
@@ -223,59 +223,9 @@ async def stt(request: Request, file: UploadFile = File(...)) -> JSONResponse:
     - Accepts multipart file under "file" (audio/webm or audio/wav)
     - Transcribes using a local Whisper model
     """
-    allowed_mimes = set(os.getenv("ALLOWED_AUDIO_MIME", "audio/webm,audio/wav").split(","))
-    max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "10"))
-    content_type = file.content_type or ""
-    is_allowed = any(content_type.startswith(mime) for mime in allowed_mimes) or content_type in allowed_mimes
-    if not is_allowed:
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                            detail=f"Unsupported audio type: {content_type}")
-
-    raw = await file.read()
-    size_mb = len(raw) / (1024 * 1024)
-    if size_mb > max_upload_mb:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            detail=f"File too large: {size_mb:.2f} MB > {max_upload_mb} MB")
-
-    t0 = time.perf_counter()
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp_in:
-            tmp_in.write(raw)
-            tmp_in_path = tmp_in.name
-
-        wav_path = tmp_in_path.replace(".webm", ".wav")
-        subprocess.run(
-            ["ffmpeg", "-i", tmp_in_path, "-ac", "1", "-ar", "16000", wav_path],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
-        audio_input, _ = librosa.load(wav_path, sr=16000)
-        
-        stt_pipeline = get_stt_pipeline()
-        if not stt_pipeline:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="STT model not available")
-
-        result = stt_pipeline(audio_input)
-        t1 = time.perf_counter()
-        transcript = result.get("text", "").strip()
-
-        payload = {
-            "transcript": transcript,
-            "latency_ms": int((t1 - t0) * 1000),
-            "model": "local/whisper-base.en",
-        }
-        return JSONResponse(payload, status_code=200)
-    except Exception as e:
-        logger.exception("STT failed: %s", e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="STT processing error")
-    finally:
-        if "tmp_in_path" in locals() and os.path.exists(tmp_in_path):
-            os.unlink(tmp_in_path)
-        if "wav_path" in locals() and os.path.exists(wav_path):
-            os.unlink(wav_path)
+    # Local STT is disabled due to large slug size on Heroku.
+    # To enable, uncomment the related code and add torch, torchaudio, librosa to requirements.txt.
+    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Local STT is not available")
 
 
 @app.get("/api/manual/resolve")

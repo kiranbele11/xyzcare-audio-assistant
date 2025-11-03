@@ -20,9 +20,9 @@ import tempfile
 import time
 import json
 import re
-import sqlite3
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import numpy as np
 from dotenv import load_dotenv
@@ -32,6 +32,8 @@ from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from starlette.staticfiles import StaticFiles
 from openai import OpenAI
 from rapidfuzz import process as rf_process, fuzz as rf_fuzz
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 # For local STT
 # import torch
@@ -49,10 +51,22 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data")).resolve()
 MANUALS_DIR = Path(os.getenv("MANUALS_DIR", "./data/manuals")).resolve()
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/sqlite/manuals.db")
+# Legacy SQLite path for backward compatibility
 SQLITE_PATH = Path(os.getenv("SQLITE_PATH", "./data/sqlite/manuals.db")).resolve()
 FAISS_INDEX_PATH = Path(os.getenv("FAISS_INDEX_PATH", "./data/index/faiss.index")).resolve()
 FAISS_META_PATH = Path(os.getenv("FAISS_META_PATH", "./data/index/meta.json")).resolve()
 ALIAS_MAP_PATH = Path(os.getenv("ALIAS_MAP_PATH", "./data/alias_map.json")).resolve()
+
+# Database engine with connection pooling
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=5,              # Maximum number of persistent connections
+    max_overflow=10,          # Maximum overflow connections beyond pool_size
+    pool_pre_ping=True,       # Verify connections before use
+    pool_recycle=3600         # Recycle connections after 1 hour
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 FRONTEND_DIR = (Path(__file__).resolve().parent.parent / "frontend").resolve()
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
@@ -361,12 +375,16 @@ async def manual_resolve(q: Optional[str] = None) -> JSONResponse:
     Resolve the best matching manual given a natural language query containing product name and/or model.
     Returns either a resolved manual or candidate list when ambiguous.
     """
+    logger.info(f"manual_resolve called with query: '{q}'")
     if not q or not q.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Query 'q' is required")
     manuals = _load_manuals_config()
+    logger.info(f"Loaded {len(manuals)} manuals from alias map")
     alias_lookup = _build_alias_lookup(manuals)
+    logger.info(f"Built alias lookup with {len(alias_lookup)} entries")
     choices = list(alias_lookup.keys())
     target = _normalize(q)
+    logger.info(f"Normalized query to: '{target}'")
 
     # Threshold is 0..1 in env; convert to 0..100
     try:
@@ -374,10 +392,13 @@ async def manual_resolve(q: Optional[str] = None) -> JSONResponse:
     except Exception:
         threshold = 0.85
     min_score = int(max(0.0, min(1.0, threshold)) * 100)
+    logger.info(f"Using match threshold: {threshold} (min_score: {min_score})")
 
     results = rf_process.extract(target, choices, scorer=rf_fuzz.WRatio, limit=5)
+    logger.info(f"Fuzzy matching results: {results}")
     # results: List[Tuple[str, int, int]] -> (alias, score, index)
     if not results:
+        logger.info("No fuzzy matching results found")
         return JSONResponse({"candidates": [], "message": "no_match"}, status_code=200)
 
     # Map to unique manuals preserving order
@@ -400,10 +421,13 @@ async def manual_resolve(q: Optional[str] = None) -> JSONResponse:
         if len(candidates) >= 3:
             break
 
+    logger.info(f"Final candidates: {candidates}")
     top = candidates[0] if candidates else None
     if top and int(top["score"] * 100) >= min_score:
+        logger.info(f"Resolved to top match: {top}")
         return JSONResponse(top, status_code=200)
     else:
+        logger.info("Returning ambiguous candidates")
         return JSONResponse({"candidates": candidates, "message": "ambiguous"}, status_code=200)
 
 
@@ -412,24 +436,31 @@ async def manual_pdf(manual_id: str):
     """
     Stream the resolved manual PDF for viewing. Only serves files under MANUALS_DIR.
     """
+    logger.info(f"manual_pdf called for manual_id: {manual_id}")
     manuals = _load_manuals_config()
+    logger.info(f"Loaded {len(manuals)} manuals from alias map for PDF lookup")
     match = next((m for m in manuals if m.get("manual_id") == manual_id), None)
     filename = None
     if match:
         filename = match.get("filename")
+        logger.info(f"Found matching manual: {match}")
     if not filename:
         # Fallback to {manual_id}.pdf
         filename = f"{manual_id}.pdf"
+        logger.info(f"No filename in alias map, using fallback: {filename}")
     pdf_path = (MANUALS_DIR / filename).resolve()
+    logger.info(f"Resolved PDF path: {pdf_path}")
 
     # Security: ensure path is within MANUALS_DIR
     try:
         pdf_path.relative_to(MANUALS_DIR)
     except Exception:
+        logger.error(f"PDF path {pdf_path} is not within MANUALS_DIR {MANUALS_DIR}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manual path")
 
     if not pdf_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual PDF not found")
+        logger.warning(f"PDF file not found at {pdf_path}. This is expected if running on a platform like Heroku without persistent file storage.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual PDF not found. Note: PDFs are not stored on the server in this deployment.")
 
     logger.info(f"Serving PDF: {pdf_path} for manual_id: {manual_id}")
 
@@ -443,7 +474,7 @@ async def manual_pdf(manual_id: str):
 async def manual_search(manual_id: str, request: Request) -> JSONResponse:
     """
     Hybrid retrieval:
-      1) Shortlist pages with SQLite FTS5 BM25 within the specified manual
+      1) Shortlist pages with PostgreSQL full-text search within the specified manual
       2) Re-rank shortlisted pages using OpenAI embeddings cosine similarity to the question
     Returns: { page: int, score: float, snippet: str }
     """
@@ -461,115 +492,148 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
     except Exception:
         fts_top_k = 8
 
-    # Step 1: FTS shortlist
-    candidates: List[Tuple[int, str]] = []  # (page_number, text)
-    conn = None
-    # Testing nvim
+    session = SessionLocal()
     try:
-        conn = sqlite3.connect(str(SQLITE_PATH))
-        cur = conn.cursor()
-        
-        # Escape special characters for FTS5 query and remove stop words
-        # Remove common question words and punctuation
+        # Check database type
+        from urllib.parse import urlparse
+        db_url = urlparse(DATABASE_URL)
+
+        # Step 1: Database-specific full-text search shortlist
+        candidates: List[Tuple[int, str]] = []  # (page_number, text)
+
+        # Clean question for search
         stop_words = {'what', 'how', 'when', 'where', 'why', 'who', 'is', 'are', 'the', 'a', 'an', 'to', 'do', 'does'}
         cleaned_question = question.replace('?', ' ').replace('.', ' ').replace('-', ' ').replace(',', ' ')
         words = [w.strip() for w in cleaned_question.lower().split() if w.strip() and w.lower() not in stop_words]
-        
-        # Use the cleaned words for FTS search
-        escaped_question = ' '.join(words) if words else question.replace('"', '""').replace('.', ' ').replace('-', ' ').replace('?', ' ')
-        
-        try:
-            cur.execute(
-                """
-                SELECT page_number, text
-                FROM pages_fts
-                WHERE manual_id = ? AND pages_fts MATCH ?
-                ORDER BY bm25(pages_fts) ASC
-                LIMIT ?
-                """,
-                (manual_id, escaped_question, fts_top_k),
-            )
-        except sqlite3.OperationalError:
-            cur.execute(
-                """
-                SELECT page_number, text
-                FROM pages_fts
-                WHERE manual_id = ? AND pages_fts MATCH ?
-                LIMIT ?
-                """,
-                (manual_id, escaped_question, fts_top_k),
-            )
-        rows = cur.fetchall() or []
-        for row in rows:
-            candidates.append((int(row[0]), row[1] or ""))
-    except Exception as e:
-        logger.exception("FTS shortlist failed: %s", e)
-        # Fallback LIKE
-        try:
-            if conn is None:
-                conn = sqlite3.connect(str(SQLITE_PATH))
-            cur = conn.cursor()
-            # Escape LIKE wildcards and use proper escaping
-            escaped_question = question.replace('%', '\\%').replace('_', '\\_')
-            cur.execute(
-                """
-                SELECT page_number, text
+        search_query = ' '.join(words) if words else question.replace('"', '').replace('.', ' ').replace('-', ' ').replace('?', ' ')
+
+        if db_url.scheme == 'postgresql':
+            logger.info(f"Using PostgreSQL search for manual '{manual_id}' with query: '{search_query}'")
+            # Use PostgreSQL full-text search with ts_rank
+            result = session.execute(
+                text("""
+                SELECT page_number, text_content
                 FROM pages
-                WHERE manual_id = ? AND text LIKE ?
-                LIMIT ?
-                """,
-                (manual_id, f"%{escaped_question}%", fts_top_k),
+                WHERE manual_id = :manual_id AND text_vector @@ plainto_tsquery('english', :query)
+                ORDER BY ts_rank(text_vector, plainto_tsquery('english', :query)) DESC
+                LIMIT :limit
+                """),
+                {
+                    "manual_id": manual_id,
+                    "query": search_query,
+                    "limit": fts_top_k
+                }
             )
-            rows = cur.fetchall() or []
+            rows = result.fetchall()
+            logger.info(f"PostgreSQL FTS returned {len(rows)} candidates.")
             for row in rows:
                 candidates.append((int(row[0]), row[1] or ""))
-        except Exception as e2:
-            logger.exception("Fallback LIKE failed: %s", e2)
-            candidates = []
-    finally:
+
+            # Fallback to trigram similarity if no FTS results
+            if not candidates:
+                logger.info("FTS returned no results. Falling back to trigram similarity.")
+                result = session.execute(
+                    text("""
+                    SELECT page_number, text_content
+                    FROM pages
+                    WHERE manual_id = :manual_id AND text_content % :query
+                    ORDER BY similarity(text_content, :query) DESC
+                    LIMIT :limit
+                    """),
+                    {
+                        "manual_id": manual_id,
+                        "query": search_query,
+                        "limit": fts_top_k
+                    }
+                )
+                rows = result.fetchall()
+                logger.info(f"PostgreSQL trigram search returned {len(rows)} candidates.")
+                for row in rows:
+                    candidates.append((int(row[0]), row[1] or ""))
+
+            # Final fallback to ILIKE
+            if not candidates:
+                logger.info("Trigram search returned no results. Falling back to ILIKE.")
+                result = session.execute(
+                    text("""
+                    SELECT page_number, text_content
+                    FROM pages
+                    WHERE manual_id = :manual_id AND text_content ILIKE :query
+                    LIMIT :limit
+                    """),
+                    {
+                        "manual_id": manual_id,
+                        "query": f"%{search_query}%",
+                        "limit": fts_top_k
+                    }
+                )
+                rows = result.fetchall()
+                logger.info(f"PostgreSQL ILIKE search returned {len(rows)} candidates.")
+                for row in rows:
+                    candidates.append((int(row[0]), row[1] or ""))
+        else:
+            logger.info(f"Using SQLite LIKE search for manual '{manual_id}' with query: '{search_query}'")
+            # SQLite fallback to LIKE
+            result = session.execute(
+                text("""
+                SELECT page_number, text_content
+                FROM pages
+                WHERE manual_id = :manual_id AND text_content LIKE :query
+                LIMIT :limit
+                """),
+                {
+                    "manual_id": manual_id,
+                    "query": f"%{search_query}%",
+                    "limit": fts_top_k
+                }
+            )
+            rows = result.fetchall()
+            logger.info(f"SQLite LIKE search returned {len(rows)} candidates.")
+            for row in rows:
+                candidates.append((int(row[0]), row[1] or ""))
+
+        if not candidates:
+            return JSONResponse({"message": "no_results"}, status_code=200)
+
+        # Step 2: Embedding re-rank (same as before)
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OPENAI_API_KEY not configured")
+        emb_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+        client = OpenAI(api_key=api_key)
+        texts = [question] + [c[1] for c in candidates]
         try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
+            resp = client.embeddings.create(model=emb_model, input=texts)
+            vecs = [np.array(item.embedding, dtype=np.float32) for item in resp.data]
+        except Exception as e:
+            logger.exception("Embeddings failed: %s", e)
+            # Fallback to FTS order
+            best_page, best_text = candidates[0]
+            snippet = (best_text[:240] + "…") if len(best_text) > 240 else best_text
+            return JSONResponse({"page": best_page, "score": None, "snippet": snippet}, status_code=200)
 
-    if not candidates:
-        return JSONResponse({"message": "no_results"}, status_code=200)
+        # Normalize vectors for cosine sim
+        def _norm(v: np.ndarray) -> np.ndarray:
+            n = np.linalg.norm(v) + 1e-12
+            return v / n
 
-    # Step 2: Embedding re-rank
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OPENAI_API_KEY not configured")
-    emb_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        qv = _norm(vecs[0])
+        page_vecs = [_norm(v) for v in vecs[1:]]
+        scores = [float(np.dot(pv, qv)) for pv in page_vecs]
 
-    client = OpenAI(api_key=api_key)
-    texts = [question] + [c[1] for c in candidates]
-    try:
-        resp = client.embeddings.create(model=emb_model, input=texts)
-        vecs = [np.array(item.embedding, dtype=np.float32) for item in resp.data]
-    except Exception as e:
-        logger.exception("Embeddings failed: %s", e)
-        # Fallback to FTS order
-        best_page, best_text = candidates[0]
+        best_idx = int(np.argmax(scores))
+        best_page, best_text = candidates[best_idx]
+        best_score = float(scores[best_idx])
+
+        logger.info(f"Re-ranked candidates. Best page: {best_page}, Score: {best_score:.4f}")
+
         snippet = (best_text[:240] + "…") if len(best_text) > 240 else best_text
-        return JSONResponse({"page": best_page, "score": None, "snippet": snippet}, status_code=200)
 
-    # Normalize vectors for cosine sim
-    def _norm(v: np.ndarray) -> np.ndarray:
-        n = np.linalg.norm(v) + 1e-12
-        return v / n
+        return JSONResponse({"page": best_page, "score": round(best_score, 4), "snippet": snippet}, status_code=200)
 
-    qv = _norm(vecs[0])
-    page_vecs = [_norm(v) for v in vecs[1:]]
-    scores = [float(np.dot(pv, qv)) for pv in page_vecs]
-
-    best_idx = int(np.argmax(scores))
-    best_page, best_text = candidates[best_idx]
-    best_score = float(scores[best_idx])
-
-    snippet = (best_text[:240] + "…") if len(best_text) > 240 else best_text
-
-    return JSONResponse({"page": best_page, "score": round(best_score, 4), "snippet": snippet}, status_code=200)
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":

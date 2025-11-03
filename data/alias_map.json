@@ -17,6 +17,54 @@
       "title": "LG Refrigerator",
       "filename": "Refrigerator_Model_GR.pdf",
       "aliases": ["Fridge", "LG Fridge", "LG Refrigerator", "Model GR"]
+    },
+    {
+      "manual_id": "LGRefrigLRSES2706V",
+      "title": "LG Refrigerator LRSES2706V",
+      "filename": "LG_Refrigerator_LRSES2706V.pdf",
+      "aliases": [
+        "LRSES2706V",
+        "LG LRSES2706V",
+        "LG fridge LRSES",
+        "2706V refrigerator",
+        "LG refrigerator 2706"
+      ]
+    },
+    {
+      "manual_id": "LGRefrigLFCC22426S",
+      "title": "LG Refrigerator LFCC22426S",
+      "filename": "LG_Refrigerator_LFCC22426S.pdf",
+      "aliases": [
+        "LFCC22426S",
+        "LG LFCC22426S",
+        "LG fridge LFCC",
+        "22426S refrigerator",
+        "LG refrigerator 22426"
+      ]
+    },
+    {
+      "manual_id": "LGAirConF24AHJ",
+      "title": "LG Air Conditioner F24AHJ-NT5",
+      "filename": "LG Air Conditioner F24AHJ-NT5, F24AHJ-NT5 Service Manual.pdf",
+      "aliases": [
+        "F24AHJ-NT5",
+        "LG F24AHJ",
+        "LG air conditioner F24",
+        "AC F24AHJ",
+        "LG AC NT5"
+      ]
+    },
+    {
+      "manual_id": "LGR410A",
+      "title": "LG R410A Air Conditioner",
+      "filename": "LG-R410A-Service-Manual.pdf",
+      "aliases": [
+        "R410A",
+        "LG R410A",
+        "R410A refrigerant system",
+        "LG 410A",
+        "R410 air conditioner"
+      ]
     }
   ]
 }

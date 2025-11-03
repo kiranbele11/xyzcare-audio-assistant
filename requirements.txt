@@ -14,6 +14,7 @@ faiss-cpu
 
 # Database
 psycopg2-binary
+SQLAlchemy>=2.0
 python-dotenv
 
 # PDF processing

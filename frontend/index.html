@@ -243,8 +243,8 @@
           micBtn.classList.add('recording');
           micBtn.setAttribute('aria-pressed', 'true');
           log('Recording started...');
-          // Auto-stop after 5 seconds for snappy demo
-          setTimeout(() => { if (isRecording) stopRecording(); }, 5000);
+          // Auto-stop after 7 seconds for snappy demo
+          setTimeout(() => { if (isRecording) stopRecording(); }, 7000);
         } catch (err) {
           console.error(err);
           toast('Failed to access microphone.');
@@ -319,10 +319,7 @@
             return;
           }
 
-          // ===== ISOLATED STT TESTING MODE =====
-          // Manual resolution and PDF loading are temporarily disabled for STT testing
-          // Uncomment the code below to re-enable full workflow after testing
-          /*
+          // Process transcript for manual resolution and search
           if (!state.manualId) {
             await resolveManual(transcript);
           } else {
@@ -340,9 +337,6 @@
               await askWithinManual(transcript);
             }
           }
-          */
-          toast('✓ STT test successful: "' + transcript + '"', true);
-          // ===== END ISOLATED STT TESTING MODE =====
 
         } catch (e) {
           const t1 = performance.now();
@@ -381,8 +375,8 @@
             toast('Manual loaded: ' + state.manualTitle);
             log('Loaded PDF: ' + pdfUrl);
           } else {
-            toast('Already viewing this manual.');
-            log('Manual already loaded: ' + state.manualTitle);
+            log('Manual already loaded: ' + state.manualTitle + '. Treating as search.');
+            await askWithinManual(query);
           }
         } catch (e) {
           toast('Error resolving manual.');

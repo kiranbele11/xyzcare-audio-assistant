@@ -27,3 +27,4 @@ boto3
 
 # NumPy for FAISS
 numpy
+gunicorn

@@ -166,13 +166,13 @@ def _build_alias_lookup(manuals: List[Dict[str, Any]]) -> Dict[str, Dict[str, An
 
 # --- Routes ---
 
-@app.get("/", response_class=HTMLResponse)
-async def root() -> HTMLResponse:
+@app.get("/")
+async def root():
     """
     Serve the frontend index. If not present yet, display a helpful placeholder.
     """
     if FRONTEND_INDEX.exists():
-        return FileResponse(str(FRONTEND_INDEX))
+        return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     # Placeholder HTML if frontend not created yet
     html = """
     <!doctype html>

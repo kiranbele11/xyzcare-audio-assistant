@@ -436,40 +436,132 @@ async def manual_resolve(q: Optional[str] = None) -> JSONResponse:
 @app.get("/api/manual/{manual_id}/pdf")
 async def manual_pdf(manual_id: str):
     """
-    Stream the resolved manual PDF for viewing. Only serves files under MANUALS_DIR.
+    Generate a presigned S3 URL for the manual PDF or serve from local filesystem.
+    Returns a redirect to the S3 URL for viewing (Heroku) or FileResponse (local dev).
     """
-    logger.info(f"manual_pdf called for manual_id: {manual_id}")
+    # Check if S3 is enabled
+    use_s3 = os.getenv("USE_S3", "false").lower() == "true"
+    
+    if not use_s3:
+        # Fallback to local file serving (for local development)
+        logger.info(f"manual_pdf called for manual_id: {manual_id} (local mode)")
+        manuals = _load_manuals_config()
+        match = next((m for m in manuals if m.get("manual_id") == manual_id), None)
+        
+        if not match:
+            logger.warning(f"Manual '{manual_id}' not found in alias map")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual not found")
+        
+        filename = match.get("filename") or f"{manual_id}.pdf"
+        pdf_path = (MANUALS_DIR / filename).resolve()
+        logger.info(f"Resolved PDF path: {pdf_path}")
+        
+        # Security: ensure path is within MANUALS_DIR
+        try:
+            pdf_path.relative_to(MANUALS_DIR)
+        except Exception:
+            logger.error(f"PDF path {pdf_path} is not within MANUALS_DIR {MANUALS_DIR}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manual path")
+        
+        if not pdf_path.exists():
+            logger.warning(f"PDF file not found at {pdf_path}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Manual PDF not found. PDFs are not available in this deployment."
+            )
+        
+        logger.info(f"Serving PDF from local filesystem: {pdf_path}")
+        response = FileResponse(str(pdf_path), media_type="application/pdf")
+        response.headers["Content-Disposition"] = "inline"
+        return response
+    
+    # S3 mode: generate presigned URL
+    logger.info(f"manual_pdf called for manual_id: {manual_id} (S3 mode)")
+    
+    import boto3
+    from botocore.exceptions import ClientError
+    
+    # Get S3 configuration
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+    bucket_name = os.getenv("S3_BUCKET_NAME")
+    
+    if not all([aws_access_key, aws_secret_key, bucket_name]):
+        logger.error("S3 credentials not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="S3 credentials not configured. Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME."
+        )
+    
+    # Resolve filename from alias map
     manuals = _load_manuals_config()
-    logger.info(f"Loaded {len(manuals)} manuals from alias map for PDF lookup")
     match = next((m for m in manuals if m.get("manual_id") == manual_id), None)
-    filename = None
-    if match:
-        filename = match.get("filename")
-        logger.info(f"Found matching manual: {match}")
+    
+    if not match:
+        logger.warning(f"Manual '{manual_id}' not found in alias map")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Manual '{manual_id}' not found")
+    
+    filename = match.get("filename")
     if not filename:
-        # Fallback to {manual_id}.pdf
-        filename = f"{manual_id}.pdf"
-        logger.info(f"No filename in alias map, using fallback: {filename}")
-    pdf_path = (MANUALS_DIR / filename).resolve()
-    logger.info(f"Resolved PDF path: {pdf_path}")
-
-    # Security: ensure path is within MANUALS_DIR
+        logger.error(f"No filename configured for manual '{manual_id}'")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Filename not configured for manual '{manual_id}'"
+        )
+    
+    # S3 key path (PDFs should be in manuals/ subfolder)
+    s3_key = f"manuals/{filename}"
+    logger.info(f"Generating presigned URL for s3://{bucket_name}/{s3_key}")
+    
     try:
-        pdf_path.relative_to(MANUALS_DIR)
-    except Exception:
-        logger.error(f"PDF path {pdf_path} is not within MANUALS_DIR {MANUALS_DIR}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manual path")
+        # Create S3 client
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region
+        )
+        
+        # Generate presigned URL (valid for 1 hour)
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': bucket_name,
+                'Key': s3_key,
+                'ResponseContentDisposition': 'inline',
+                'ResponseContentType': 'application/pdf'
+            },
+            ExpiresIn=3600  # 1 hour
+        )
+        
+        logger.info(f"✓ Generated presigned URL for manual '{manual_id}': {s3_key}")
+        
+        # Return 307 Temporary Redirect to presigned URL
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=presigned_url, status_code=307)
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.exception(f"S3 error for {s3_key}: {error_code} - {e}")
+        
+        if error_code == 'NoSuchKey':
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"PDF file not found in S3: {s3_key}"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to access PDF in S3: {error_code}"
+            )
+    except Exception as e:
+        logger.exception(f"Unexpected error generating presigned URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate PDF URL"
+        )
 
-    if not pdf_path.exists():
-        logger.warning(f"PDF file not found at {pdf_path}. This is expected if running on a platform like Heroku without persistent file storage.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual PDF not found. Note: PDFs are not stored on the server in this deployment.")
-
-    logger.info(f"Serving PDF: {pdf_path} for manual_id: {manual_id}")
-
-    # Explicitly set Content-Disposition to inline to force display in browser
-    response = FileResponse(str(pdf_path), media_type="application/pdf")
-    response.headers["Content-Disposition"] = "inline"
-    return response
 
 
 @app.post("/api/manual/{manual_id}/search")

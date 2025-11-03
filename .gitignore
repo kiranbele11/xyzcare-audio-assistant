@@ -263,3 +263,6 @@ mermaid_diagram.png
 
 # Claude Code documentation (not for public repo)
 CLAUDE.md
+
+# AWS setup documentation (contains sensitive workflow info)
+aws_setup.md

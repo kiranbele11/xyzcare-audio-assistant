@@ -693,10 +693,10 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         # Track indices to map back to original candidates
         valid_indices = []
         valid_candidates = []
-        for i, (page_num, text) in enumerate(candidates):
-            if text and len(text.strip()) > 10:
+        for i, (page_num, page_text) in enumerate(candidates):
+            if page_text and len(page_text.strip()) > 10:
                 valid_indices.append(i)
-                valid_candidates.append((page_num, text))
+                valid_candidates.append((page_num, page_text))
         
         if not valid_candidates:
             logger.warning("All candidates have empty/insufficient text content")

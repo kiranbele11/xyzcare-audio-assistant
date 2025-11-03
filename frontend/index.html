@@ -1,11 +1,366 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Test</title>
+  <meta charset="utf-8">
+  <title>XYZCare Audio Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f8f9fa; --panel: #ffffff; --muted: #6c757d; --text: #212529; --accent: #007bff; --danger: #dc3545; --ok: #28a745;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    header {
+      padding: 16px 20px; border-bottom: 1px solid #dee2e6; background: #ffffffcc; position: sticky; top:0; backdrop-filter: blur(8px); z-index:10;
+      display:flex; align-items:center; gap:14px;
+    }
+    .dot { width:10px; height:10px; border-radius:50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    h1 { margin:0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+    #sidebar-toggle { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text); }
+    #sidebar { position: fixed; top: 64px; left: 0; height: calc(100% - 64px); width: 380px; background-color: var(--panel); border-right: 1px solid #dee2e6; padding: 16px; z-index: 100; transform: translateX(0); transition: transform 0.3s ease-in-out; box-shadow: 0 0 30px rgba(0,0,0,.1); } 
+    #sidebar.closed { transform: translateX(-100%); }
+    #main-content { margin-left: 380px; transition: margin-left 0.3s ease-in-out; padding: 16px; min-height: calc(100vh - 64px); } 
+    #main-content.sidebar-closed { margin-left: 0; }
+    @media (max-width: 980px) { 
+      #sidebar { box-shadow: none; }
+      #main-content { margin-left: 0; } 
+      #sidebar.closed { display: none; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #dee2e6; border-radius: 12px; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.05);
+    }
+    .section-title { font-size: 13px; text-transform: uppercase; letter-spacing:.12em; color: var(--muted); margin: 0 0 8px 2px; }
+    .mic-wrap { display:flex; align-items:center; gap:10px; }
+    #micBtn {
+      appearance:none; border:1px solid #007bff; background: #007bff;
+      color:#fff; border-radius: 50%; padding: 14px; font-weight:600; cursor:pointer;
+      box-shadow: 0 6px 16px rgba(0, 123, 255, 0.3);
+      transition: transform .06s ease, box-shadow .12s ease, background .2s ease;
+      width: 50px;
+      height: 50px;
+      font-size: 24px;
+    }
+    #micBtn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(0, 123, 255, 0.4); }
+    #micBtn.recording {
+      border-color: var(--danger);
+      background: var(--danger);
+      box-shadow: 0 6px 16px rgba(220, 53, 69, 0.4);
+    }
+    #micHint { color: var(--muted); font-size: 12px; }
+    .kv { display:grid; grid-template-columns: 110px 1fr; font-size: 13px; gap: 6px 10px; color: var(--muted); }
+    .kv div.value { color: var(--text); font-weight: 600; }
+    .status {
+      display:flex; align-items:center; gap:10px; flex-wrap: wrap; margin-top: 10px;
+    }
+    .pill { font-size: 12px; padding: 6px 10px; border-radius: 999px; border:1px solid #ced4da; color: var(--muted); }
+    .pill.ok { color: var(--ok); border-color: var(--ok); }
+    .pill.warn { color: #ffc107; border-color: #ffc107; }
+    .pill.err { color: var(--danger); border-color: var(--danger); }
+    #log {
+      height: 180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+      background: #e9ecef; border-radius: 8px; border:1px solid #ced4da; padding: 8px; color:#495057;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #pdfFrame {
+      width:100%; height: calc(100vh - 120px); border:1px solid #dee2e6; border-radius: 12px; background:#f8f9fa;
+    }
+    .toast { margin-top: 10px; font-size: 13px; color: var(--text); }
+    a { color: var(--accent); }
+  </style>
 </head>
 <body>
-    <h1>Hello World!</h1>
-    <p>If you can see this, the server is working.</p>
+  <header>
+    <button id="sidebar-toggle" aria-label="Toggle sidebar">☰</button>
+    <span class="dot" aria-hidden="true"></span>
+    <h1>XYZCare Audio Assistant</h1>
+  </header>
+
+  <div id="sidebar">
+    <section class="panel" aria-label="Voice Controls">
+      <p class="section-title">Controls</p>
+      <div class="mic-wrap">
+        <button id="micBtn" aria-pressed="false" aria-label="Hold to speak or click to start/stop recording">
+          🎤
+        </button>
+        <span id="micHint">Usage: Say 'LG Refrigerator Manual', then 'Load Driver Circuit'</span>
+      </div>
+
+      <div class="status">
+        <div class="kv" style="margin-top:10px; flex: 1 1 100%;">
+          <div>Manual</div><div class="value" id="manualVal">—</div>
+          <div>Transcript</div><div class="value" id="transcriptVal">—</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="section-title">Log</div>
+        <pre id="log" aria-live="polite"></pre>
+        <div class="toast" id="toast"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="main-content">
+    <section class="panel" aria-label="Manual Viewer">
+      <p class="section-title">Manual</p>
+      <iframe id="pdfFrame" title="Manual PDF Viewer"></iframe>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      const micBtn = document.getElementById('micBtn');
+      const manualVal = document.getElementById('manualVal');
+      const transcriptVal = document.getElementById('transcriptVal');
+      const logEl = document.getElementById('log');
+      const toastEl = document.getElementById('toast');
+      const pdfFrame = document.getElementById('pdfFrame');
+      const sidebar = document.getElementById('sidebar');
+      const mainContent = document.getElementById('main-content');
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+
+      sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('closed');
+        mainContent.classList.toggle('sidebar-closed');
+      });
+
+      let mediaRecorder = null;
+      let chunks = [];
+      let isRecording = false;
+      let state = {
+        manualId: null,
+        manualTitle: null,
+        lastLatencyMs: null,
+      };
+
+      function log(msg) {
+        const ts = new Date().toISOString().split('T')[1].replace('Z','');
+        logEl.textContent += '[' + ts + '] ' + msg + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function toast(msg, persist = false) {
+        toastEl.textContent = msg;
+        if (!persist) {
+          setTimeout(() => { toastEl.textContent = ''; }, 4000);
+        }
+      }
+      
+      function clearToast() {
+        toastEl.textContent = '';
+      }
+
+      function chooseMime() {
+        const preferred = ['audio/webm;codecs=opus', 'audio/webm'];
+        for (const m of preferred) {
+          if (MediaRecorder.isTypeSupported(m)) return m;
+        }
+        return ''; // Let browser decide
+      }
+
+      async function startRecording() {
+        if (isRecording) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          toast('Microphone not available.');
+          log('MediaDevices.getUserMedia not supported');
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mimeType = chooseMime();
+          chunks = [];
+          mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+          mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+          mediaRecorder.onstop = onStopRecording;
+          mediaRecorder.start();
+          isRecording = true;
+          micBtn.classList.add('recording');
+          micBtn.setAttribute('aria-pressed', 'true');
+          log('Recording started...');
+          // Auto-stop after 5 seconds for snappy demo
+          setTimeout(() => { if (isRecording) stopRecording(); }, 5000);
+        } catch (err) {
+          console.error(err);
+          toast('Failed to access microphone.');
+          log('Error starting recording: ' + (err && err.message ? err.message : String(err)));
+        }
+      }
+
+      function stopRecording() {
+        if (!isRecording) return;
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        micBtn.setAttribute('aria-pressed', 'false');
+        try {
+          mediaRecorder.stop();
+          log('Recording stopped. Processing...');
+        } catch (e) {
+          log('Error stopping recorder: ' + e);
+        }
+      }
+
+      async function onStopRecording() {
+        try {
+          const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
+          await handleUtterance(blob);
+        } catch (e) {
+          log('onStop error: ' + e);
+        } finally {
+          // Cleanup tracks
+          try {
+            mediaRecorder.stream.getTracks().forEach(t => t.stop());
+          } catch {}
+        }
+      }
+
+      async function handleUtterance(audioBlob) {
+        clearToast(); // Clear any persistent toast when starting new utterance
+        const t0 = performance.now();
+        transcriptVal.textContent = '…';
+        const form = new FormData();
+        const ext = (audioBlob.type.includes('wav') ? 'wav' : 'webm');
+        form.append('file', audioBlob, 'audio.' + ext);
+
+        let transcript = null;
+        try {
+          const resp = await fetch('/api/stt', { method: 'POST', body: form });
+          const t1 = performance.now();
+          if (!resp.ok) {
+            const msg = 'STT error: ' + resp.status + ' ' + resp.statusText;
+            toast(msg);
+            log(msg);
+            transcriptVal.textContent = '—';
+            return;
+          }
+          const data = await resp.json();
+          transcript = (data && data.transcript) ? data.transcript.trim() : '';
+          transcriptVal.textContent = transcript || '—';
+          log('Transcript: ' + transcript);
+
+          if (!transcript) {
+            toast('No speech detected.');
+            return;
+          }
+
+          if (!state.manualId) {
+            await resolveManual(transcript);
+          } else {
+            // Check if user is trying to switch manuals by mentioning another product
+            // If transcript looks like a manual name, try to resolve it
+            const lowerTranscript = transcript.toLowerCase();
+            const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro'];
+            const hasManualKeyword = manualKeywords.some(kw => lowerTranscript.includes(kw));
+            
+            if (hasManualKeyword && !lowerTranscript.includes('?') && !lowerTranscript.includes('how') && !lowerTranscript.includes('what')) {
+              // Likely trying to switch manuals
+              await resolveManual(transcript);
+            } else {
+              // Search within current manual
+              await askWithinManual(transcript);
+            }
+          }
+        } catch (e) {
+          const t1 = performance.now();
+          toast('Network error during STT.');
+          log('STT exception: ' + e);
+        }
+      }
+
+      async function resolveManual(query) {
+        const url = '/api/manual/resolve?q=' + encodeURIComponent(query);
+        log('Resolving manual: ' + query);
+        const t0 = performance.now();
+        try {
+          const resp = await fetch(url);
+          const t1 = performance.now();
+          if (!resp.ok) {
+            toast('Manual resolution failed (' + resp.status + ').');
+            log('Resolve error: ' + resp.status + ' ' + resp.statusText);
+            return;
+          }
+          const data = await resp.json();
+          // Expected: { manual_id, title, filename }
+          if (!data.manual_id) {
+            toast('Ambiguous. Please be more specific.');
+            log('Resolve response ambiguous: ' + JSON.stringify(data));
+            return;
+          }
+          // Only switch manual if it's different from current one
+          if (state.manualId !== data.manual_id) {
+            state.manualId = data.manual_id;
+            state.manualTitle = data.title || data.filename || ('Manual ' + data.manual_id);
+            manualVal.textContent = state.manualTitle;
+
+            const pdfUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
+            pdfFrame.src = pdfUrl + '#page=1';
+            toast('Manual loaded: ' + state.manualTitle);
+            log('Loaded PDF: ' + pdfUrl);
+          } else {
+            toast('Already viewing this manual.');
+            log('Manual already loaded: ' + state.manualTitle);
+          }
+        } catch (e) {
+          toast('Error resolving manual.');
+          log('Resolve exception: ' + e);
+        }
+      }
+
+      async function askWithinManual(question) {
+        if (!state.manualId) return;
+        const url = '/api/manual/' + encodeURIComponent(state.manualId) + '/search';
+        log('Searching within manual: ' + question);
+        const t0 = performance.now();
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question })
+          });
+          const t1 = performance.now();
+          if (!resp.ok) {
+            toast('Search failed (' + resp.status + ').');
+            log('Search error: ' + resp.status + ' ' + resp.statusText);
+            return;
+          }
+          const data = await resp.json();
+          // Expected: { page, score, snippet }
+          if (!data.page) {
+            toast('No relevant section found.');
+            log('Search response: ' + JSON.stringify(data));
+            return;
+          }
+          jumpToPage(data.page);
+          const summary = data.snippet ? (' — ' + data.snippet.slice(0, 140) + (data.snippet.length > 140 ? '…' : '')) : '';
+          toast('📄 Page ' + data.page + summary, true); // Persistent toast
+          log('Rerank score: ' + (data.score !== undefined && data.score !== null ? data.score.toFixed(3) : 'n/a'));
+        } catch (e) {
+          toast('Error searching manual.');
+          log('Search exception: ' + e);
+        }
+      }
+
+      function jumpToPage(pageNum) {
+        if (!state.manualId) return;
+        const base = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
+        // Force reload with timestamp to ensure browser processes the page change
+        const timestamp = new Date().getTime();
+        const newSrc = base + '?t=' + timestamp + '#page=' + encodeURIComponent(pageNum);
+        pdfFrame.src = newSrc;
+        log('Viewer navigated to page ' + pageNum);
+      }
+
+      // Wire UI
+      micBtn.addEventListener('click', () => {
+        if (isRecording) stopRecording(); else startRecording();
+      });
+
+      log('UI loaded. Click the mic to speak.');
+    })();
+  </script>
 </body>
 </html>

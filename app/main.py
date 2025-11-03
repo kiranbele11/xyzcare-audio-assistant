@@ -222,13 +222,137 @@ async def healthz() -> JSONResponse:
 @app.post("/api/stt")
 async def stt(request: Request, file: UploadFile = File(...)) -> JSONResponse:
     """
-    Speech-to-text endpoint using a local model.
-    - Accepts multipart file under "file" (audio/webm or audio/wav)
-    - Transcribes using a local Whisper model
+    Speech-to-text endpoint using OpenAI Whisper API.
+    - Accepts multipart file under "file" (audio/webm, audio/wav, audio/mp3, audio/m4a)
+    - Transcribes using OpenAI Whisper API
+    - Returns: { "transcript": "...", "duration_ms": 123 }
     """
-    # Local STT is disabled due to large slug size on Heroku.
-    # To enable, uncomment the related code and add torch, torchaudio, librosa to requirements.txt.
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Local STT is not available")
+    t0 = time.time()
+
+    # Validate API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="OPENAI_API_KEY not configured"
+        )
+
+    # Validate file
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No audio file provided"
+        )
+
+    # Validate MIME type
+    allowed_mimes = os.getenv("ALLOWED_AUDIO_MIME", "audio/webm,audio/wav,audio/mp3,audio/mpeg,audio/m4a,audio/x-m4a").split(",")
+    content_type = file.content_type or ""
+
+    logger.info(f"Received audio file: {file.filename}, content_type: {content_type}, size: {file.size if hasattr(file, 'size') else 'unknown'}")
+
+    # Read file content
+    try:
+        audio_bytes = await file.read()
+    except Exception as e:
+        logger.exception("Failed to read uploaded file: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to read audio file"
+        )
+
+    # Validate file size (OpenAI limit is 25MB)
+    max_size_mb = int(os.getenv("MAX_UPLOAD_MB", "25"))
+    if len(audio_bytes) > max_size_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Audio file too large. Max {max_size_mb}MB allowed."
+        )
+
+    if len(audio_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio file is empty"
+        )
+
+    # Determine file extension from filename or content type
+    filename = file.filename or "audio.webm"
+    if filename.endswith(".webm"):
+        ext = "webm"
+    elif filename.endswith(".wav"):
+        ext = "wav"
+    elif filename.endswith(".mp3"):
+        ext = "mp3"
+    elif filename.endswith(".m4a"):
+        ext = "m4a"
+    else:
+        # Infer from content type
+        if "webm" in content_type:
+            ext = "webm"
+        elif "wav" in content_type:
+            ext = "wav"
+        elif "mp3" in content_type or "mpeg" in content_type:
+            ext = "mp3"
+        elif "m4a" in content_type:
+            ext = "m4a"
+        else:
+            ext = "webm"  # default
+
+    # Call OpenAI Whisper API
+    try:
+        client = OpenAI(api_key=api_key)
+
+        # Create a temporary file-like object for OpenAI client
+        # The client expects a file-like object with a name attribute
+        import io
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = f"audio.{ext}"
+
+        t_api_start = time.time()
+        response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="text"
+        )
+        t_api_end = time.time()
+
+        transcript = response.strip() if isinstance(response, str) else ""
+
+        t_total = time.time() - t0
+        api_duration_ms = int((t_api_end - t_api_start) * 1000)
+        total_duration_ms = int(t_total * 1000)
+
+        if ENABLE_TIMING_LOGS:
+            logger.info(f"STT completed: {total_duration_ms}ms total (API: {api_duration_ms}ms)")
+
+        logger.info(f"Transcript: {transcript}")
+
+        return JSONResponse({
+            "transcript": transcript,
+            "duration_ms": total_duration_ms,
+            "api_duration_ms": api_duration_ms
+        }, status_code=200)
+
+    except Exception as e:
+        t_total = time.time() - t0
+        logger.exception("OpenAI Whisper API error: %s", e)
+
+        # Provide specific error messages
+        error_msg = str(e)
+        if "insufficient_quota" in error_msg.lower() or "quota" in error_msg.lower():
+            detail = f"OpenAI quota exceeded. Please check billing at platform.openai.com. Error: {error_msg}"
+        elif "rate_limit" in error_msg.lower():
+            detail = f"Rate limit exceeded. Please try again later. Error: {error_msg}"
+        elif "invalid_api_key" in error_msg.lower() or "authentication" in error_msg.lower():
+            detail = f"Invalid OpenAI API key. Error: {error_msg}"
+        elif "timeout" in error_msg.lower():
+            detail = f"Request timeout. Please try with shorter audio. Error: {error_msg}"
+        else:
+            detail = f"Speech-to-text failed: {error_msg}"
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail
+        )
 
 
 @app.get("/api/manual/resolve")

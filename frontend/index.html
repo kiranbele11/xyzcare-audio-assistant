@@ -292,7 +292,14 @@
           const resp = await fetch('/api/stt', { method: 'POST', body: form });
           const t1 = performance.now();
           if (!resp.ok) {
-            const msg = 'STT error: ' + resp.status + ' ' + resp.statusText;
+            let errorDetail = resp.statusText;
+            try {
+              const errorData = await resp.json();
+              errorDetail = errorData.detail || resp.statusText;
+            } catch (e) {
+              // If can't parse JSON, use statusText
+            }
+            const msg = 'STT error: ' + resp.status + ' - ' + errorDetail;
             toast(msg);
             log(msg);
             transcriptVal.textContent = '—';
@@ -301,13 +308,21 @@
           const data = await resp.json();
           transcript = (data && data.transcript) ? data.transcript.trim() : '';
           transcriptVal.textContent = transcript || '—';
+
+          // Log transcript and timing
+          const latency = t1 - t0;
           log('Transcript: ' + transcript);
+          log('Latency: ' + Math.round(latency) + 'ms (Total), ' + (data.api_duration_ms || 'n/a') + 'ms (API)');
 
           if (!transcript) {
             toast('No speech detected.');
             return;
           }
 
+          // ===== ISOLATED STT TESTING MODE =====
+          // Manual resolution and PDF loading are temporarily disabled for STT testing
+          // Uncomment the code below to re-enable full workflow after testing
+          /*
           if (!state.manualId) {
             await resolveManual(transcript);
           } else {
@@ -316,7 +331,7 @@
             const lowerTranscript = transcript.toLowerCase();
             const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro'];
             const hasManualKeyword = manualKeywords.some(kw => lowerTranscript.includes(kw));
-            
+
             if (hasManualKeyword && !lowerTranscript.includes('?') && !lowerTranscript.includes('how') && !lowerTranscript.includes('what')) {
               // Likely trying to switch manuals
               await resolveManual(transcript);
@@ -325,6 +340,10 @@
               await askWithinManual(transcript);
             }
           }
+          */
+          toast('✓ STT test successful: "' + transcript + '"', true);
+          // ===== END ISOLATED STT TESTING MODE =====
+
         } catch (e) {
           const t1 = performance.now();
           toast('Network error during STT.');

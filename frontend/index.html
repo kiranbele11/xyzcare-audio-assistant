@@ -326,7 +326,9 @@
             // Check if user is trying to switch manuals by mentioning another product
             // If transcript looks like a manual name, try to resolve it
             const lowerTranscript = transcript.toLowerCase();
-            const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro'];
+            const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro',
+                                    'touchscreen', 'screen', 'display', 'battery', 'camera',
+                                    'calibration', 'repair', 'phone', 'conditioner', 'ac'];
             const hasManualKeyword = manualKeywords.some(kw => lowerTranscript.includes(kw));
 
             if (hasManualKeyword && !lowerTranscript.includes('?') && !lowerTranscript.includes('how') && !lowerTranscript.includes('what')) {

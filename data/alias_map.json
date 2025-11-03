@@ -4,19 +4,22 @@
       "manual_id": "PixelFold",
       "title": "Pixel 9 Pro Fold Repair Manual V2",
       "filename": "Pixel 9 Pro Fold Repair Manual V2.pdf",
-      "aliases": ["Pixel 9 Fold Pro", "Pixel Fold", "Pixel 9 Pro Fold"]
+      "aliases": ["Pixel 9 Fold Pro", "Pixel Fold", "Pixel 9 Pro Fold", "Google Pixel Fold", "Android Fold", "Foldable phone", "Pixel foldable"],
+      "keywords": ["touchscreen", "display", "screen", "calibration", "battery", "camera", "Android", "repair", "fold", "hinge", "phone", "smartphone"]
     },
     {
       "manual_id": "Pixel9",
       "title": "Pixel 9 Pro Repair Manual V1.1",
       "filename": "Pixel 9 Pro Repair Manual V1.1.pdf",
-      "aliases": ["Pixel 9 pro", "Pixel pro", "Latest Pixel Pro", "Pixel Pro 9"]
+      "aliases": ["Pixel 9 pro", "Pixel pro", "Latest Pixel Pro", "Pixel Pro 9", "Google Pixel", "Google phone", "Android phone", "Pixel smartphone"],
+      "keywords": ["touchscreen", "display", "screen", "calibration", "battery", "camera", "Android", "repair", "phone", "smartphone", "Google"]
     },
     {
       "manual_id": "Fridge",
       "title": "LG Refrigerator",
       "filename": "Refrigerator_Model_GR.pdf",
-      "aliases": ["Fridge", "LG Fridge", "LG Refrigerator", "Model GR"]
+      "aliases": ["Fridge", "LG Fridge", "LG Refrigerator", "Model GR", "Refrigerator GR"],
+      "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance"]
     },
     {
       "manual_id": "LGRefrigLRSES2706V",
@@ -28,7 +31,8 @@
         "LG fridge LRSES",
         "2706V refrigerator",
         "LG refrigerator 2706"
-      ]
+      ],
+      "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance", "ice maker"]
     },
     {
       "manual_id": "LGRefrigLFCC22426S",
@@ -40,7 +44,8 @@
         "LG fridge LFCC",
         "22426S refrigerator",
         "LG refrigerator 22426"
-      ]
+      ],
+      "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance"]
     },
     {
       "manual_id": "LGAirConF24AHJ",
@@ -51,8 +56,11 @@
         "LG F24AHJ",
         "LG air conditioner F24",
         "AC F24AHJ",
-        "LG AC NT5"
-      ]
+        "LG AC NT5",
+        "Air conditioner",
+        "AC unit"
+      ],
+      "keywords": ["air conditioner", "AC", "cooling", "refrigerant", "compressor", "thermostat", "filter", "LG", "HVAC", "climate"]
     },
     {
       "manual_id": "LGR410A",
@@ -63,8 +71,10 @@
         "LG R410A",
         "R410A refrigerant system",
         "LG 410A",
-        "R410 air conditioner"
-      ]
+        "R410 air conditioner",
+        "Air conditioner R410"
+      ],
+      "keywords": ["air conditioner", "AC", "cooling", "refrigerant", "compressor", "thermostat", "filter", "LG", "HVAC", "climate", "R410A"]
     }
   ]
 }

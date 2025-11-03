@@ -180,6 +180,76 @@ def _build_alias_lookup(manuals: List[Dict[str, Any]]) -> Dict[str, Dict[str, An
         lookup[_normalize(m["manual_id"])] = m
     return lookup
 
+def _extract_product_from_query(query: str, manuals: List[Dict[str, Any]]) -> Optional[Tuple[str, float]]:
+    """
+    Extract product name from a technical query using keyword matching.
+    Returns (extracted_product_name, confidence) or None.
+
+    This function looks for product-specific keywords in the query and
+    returns a product name that can be used for fuzzy matching.
+    """
+    query_lower = _normalize(query)
+    query_words = set(query_lower.split())
+
+    # Score each manual based on keyword matches
+    best_match = None
+    best_score = 0.0
+
+    logger.debug(f"Product extraction - query_lower: '{query_lower}', query_words: {query_words}")
+
+    for manual in manuals:
+        score = 0.0
+        keywords = manual.get("keywords", [])
+
+        # Count keyword matches - check both substring and word-level matches
+        keyword_matches = 0
+        for kw in keywords:
+            kw_norm = _normalize(kw)
+            # Check if keyword appears as substring OR as individual words
+            if kw_norm in query_lower or kw_norm in query_words:
+                keyword_matches += 1
+                logger.debug(f"  Manual {manual.get('manual_id')}: matched keyword '{kw}' (normalized: '{kw_norm}')")
+
+        if keyword_matches > 0:
+            # Weight by number of matches and keyword specificity
+            # Give higher score for more matches
+            score = keyword_matches / max(len(keywords), 1)
+            logger.debug(f"  Manual {manual.get('manual_id')}: {keyword_matches} keyword matches, initial score: {score:.3f}")
+
+            # Bonus for direct alias mentions (even partial)
+            for alias in manual.get("aliases", []):
+                alias_norm = _normalize(alias)
+                # Check both substring and word overlap
+                alias_words = set(alias_norm.split())
+                word_overlap = len(query_words & alias_words)
+                if alias_norm in query_lower or word_overlap > 0:
+                    score += 0.5  # Strong boost for alias match
+                    logger.debug(f"  Manual {manual.get('manual_id')}: alias match bonus ('{alias}'), score now: {score:.3f}")
+                    break
+
+            # Bonus for product-specific terms (Pixel, LG, etc.)
+            manual_id_norm = _normalize(manual.get("manual_id", ""))
+            if any(word in query_words for word in manual_id_norm.split()):
+                score += 0.3
+                logger.debug(f"  Manual {manual.get('manual_id')}: manual_id word match bonus, score now: {score:.3f}")
+
+            if score > best_score:
+                best_score = score
+                # Return the first alias or title as the extracted product name
+                best_match = manual.get("aliases", [manual.get("title", "")])[0] if manual.get("aliases") else manual.get("title", "")
+                logger.debug(f"  New best match: {best_match} with score {best_score:.3f}")
+
+    # Only return if we have reasonable confidence (at least 1 keyword match)
+    # Lower threshold to 0.15 to catch technical queries with fewer keyword matches
+    if best_score > 0.15:
+        # Normalize confidence to 0-1 range, capped at 0.9
+        confidence = min(0.9, best_score)
+        logger.info(f"Extracted product '{best_match}' from query with confidence {confidence:.2f} (score: {best_score:.3f})")
+        return (best_match, confidence)
+
+    logger.info(f"Could not extract product from query: '{query}' (best_score: {best_score:.3f}, threshold: 0.15)")
+    return None
+
 # --- Routes ---
 
 @app.get("/")
@@ -376,17 +446,38 @@ async def manual_resolve(q: Optional[str] = None) -> JSONResponse:
     """
     Resolve the best matching manual given a natural language query containing product name and/or model.
     Returns either a resolved manual or candidate list when ambiguous.
+
+    Enhanced with product extraction: attempts to extract product mentions from technical queries
+    before falling back to direct fuzzy matching.
     """
     logger.info(f"manual_resolve called with query: '{q}'")
     if not q or not q.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Query 'q' is required")
     manuals = _load_manuals_config()
     logger.info(f"Loaded {len(manuals)} manuals from alias map")
+
+    # Step 1: Try to extract product name from query using keyword matching
+    extracted = _extract_product_from_query(q, manuals)
+    if extracted:
+        product_name, confidence = extracted
+        logger.info(f"Product extraction found: '{product_name}' (confidence: {confidence:.2f})")
+        # Lower threshold to 0.15 to use extraction for technical queries
+        # Even low confidence extraction is better than matching technical terms against product names
+        if confidence >= 0.15:
+            target = _normalize(product_name)
+            logger.info(f"Using extracted product for matching: '{target}' (confidence: {confidence:.2f})")
+        else:
+            # Very low confidence, fall back to original query
+            target = _normalize(q)
+            logger.info(f"Very low confidence extraction ({confidence:.2f}), using original query: '{target}'")
+    else:
+        # No product extraction, use original query
+        target = _normalize(q)
+        logger.info(f"No product extracted, using original query: '{target}'")
+
     alias_lookup = _build_alias_lookup(manuals)
     logger.info(f"Built alias lookup with {len(alias_lookup)} entries")
     choices = list(alias_lookup.keys())
-    target = _normalize(q)
-    logger.info(f"Normalized query to: '{target}'")
 
     # Threshold is 0..1 in env; convert to 0..100
     try:
@@ -595,11 +686,13 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         # Step 1: Database-specific full-text search shortlist
         candidates: List[Tuple[int, str]] = []  # (page_number, text)
 
-        # Clean question for search
-        stop_words = {'what', 'how', 'when', 'where', 'why', 'who', 'is', 'are', 'the', 'a', 'an', 'to', 'do', 'does'}
-        cleaned_question = question.replace('?', ' ').replace('.', ' ').replace('-', ' ').replace(',', ' ')
-        words = [w.strip() for w in cleaned_question.lower().split() if w.strip() and w.lower() not in stop_words]
-        search_query = ' '.join(words) if words else question.replace('"', '').replace('.', ' ').replace('-', ' ').replace('?', ' ')
+        # Clean question for search - use minimal stop words to preserve technical terms
+        # Only remove articles that don't add semantic value
+        minimal_stop_words = {'the', 'a', 'an'}
+        cleaned_question = question.replace('?', ' ').replace('.', ' ').replace(',', ' ')
+        words = [w.strip() for w in cleaned_question.lower().split() if w.strip() and w.lower() not in minimal_stop_words]
+        search_query = ' '.join(words) if words else question.replace('"', '').replace('.', ' ').replace('?', ' ')
+        logger.info(f"Cleaned search query: '{search_query}' (from: '{question}')")
 
         if db_url.scheme == 'postgresql':
             logger.info(f"Using PostgreSQL search for manual '{manual_id}' with query: '{search_query}'")

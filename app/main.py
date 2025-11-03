@@ -52,6 +52,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data")).resolve()
 MANUALS_DIR = Path(os.getenv("MANUALS_DIR", "./data/manuals")).resolve()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/sqlite/manuals.db")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 # Legacy SQLite path for backward compatibility
 SQLITE_PATH = Path(os.getenv("SQLITE_PATH", "./data/sqlite/manuals.db")).resolve()
 FAISS_INDEX_PATH = Path(os.getenv("FAISS_INDEX_PATH", "./data/index/faiss.index")).resolve()

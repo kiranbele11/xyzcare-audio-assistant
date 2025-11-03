@@ -689,6 +689,19 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         if not candidates:
             return JSONResponse({"message": "no_results"}, status_code=200)
 
+        # Filter out candidates with empty or very short text before embedding
+        # Track indices to map back to original candidates
+        valid_indices = []
+        valid_candidates = []
+        for i, (page_num, text) in enumerate(candidates):
+            if text and len(text.strip()) > 10:
+                valid_indices.append(i)
+                valid_candidates.append((page_num, text))
+        
+        if not valid_candidates:
+            logger.warning("All candidates have empty/insufficient text content")
+            return JSONResponse({"message": "no_results"}, status_code=200)
+
         # Step 2: Embedding re-rank (same as before)
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -696,14 +709,14 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         emb_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
         client = OpenAI(api_key=api_key)
-        texts = [question] + [c[1] for c in candidates]
+        texts = [question] + [c[1] for c in valid_candidates]
         try:
             resp = client.embeddings.create(model=emb_model, input=texts)
             vecs = [np.array(item.embedding, dtype=np.float32) for item in resp.data]
         except Exception as e:
             logger.exception("Embeddings failed: %s", e)
-            # Fallback to FTS order
-            best_page, best_text = candidates[0]
+            # Fallback to FTS order (use first valid candidate)
+            best_page, best_text = valid_candidates[0]
             snippet = (best_text[:240] + "…") if len(best_text) > 240 else best_text
             return JSONResponse({"page": best_page, "score": None, "snippet": snippet}, status_code=200)
 
@@ -717,8 +730,9 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         scores = [float(np.dot(pv, qv)) for pv in page_vecs]
 
         best_idx = int(np.argmax(scores))
-        best_page, best_text = candidates[best_idx]
+        best_page, best_text = valid_candidates[best_idx]
         best_score = float(scores[best_idx])
+
 
         logger.info(f"Re-ranked candidates. Best page: {best_page}, Score: {best_score:.4f}")
 

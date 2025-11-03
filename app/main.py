@@ -168,12 +168,15 @@ def _build_alias_lookup(manuals: List[Dict[str, Any]]) -> Dict[str, Dict[str, An
 
 @app.get("/")
 async def root():
+    logger.info("Received GET request for root path.")
     """
     Serve the frontend index. If not present yet, display a helpful placeholder.
     """
     if FRONTEND_INDEX.exists():
+        logger.info(f"FRONTEND_INDEX exists: {FRONTEND_INDEX}. Serving FileResponse.")
         return FileResponse(str(FRONTEND_INDEX), media_type="text/html")
     # Placeholder HTML if frontend not created yet
+    logger.info("FRONTEND_INDEX does not exist. Serving placeholder HTML.")
     html = """
     <!doctype html>
     <html lang="en">

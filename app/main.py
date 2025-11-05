@@ -627,10 +627,13 @@ async def manual_pdf(manual_id: str):
         )
         
         logger.info(f"✓ Generated presigned URL for manual '{manual_id}': {s3_key}")
-        
-        # Return 307 Temporary Redirect to presigned URL
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=presigned_url, status_code=307)
+
+        # Return JSON with presigned URL for frontend to use directly
+        return JSONResponse({
+            "url": presigned_url,
+            "manual_id": manual_id,
+            "expires_in": 3600
+        }, status_code=200)
         
     except ClientError as e:
         error_code = e.response['Error']['Code']

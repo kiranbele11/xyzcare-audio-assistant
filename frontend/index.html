@@ -4,6 +4,14 @@
   <meta charset="utf-8">
   <title>XYZCare Audio Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- PDF.js Library for cross-platform PDF rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
   <style>
     :root {
       --bg: #f8f9fa; --panel: #ffffff; --muted: #6c757d; --text: #212529; --accent: #007bff; --danger: #dc3545; --ok: #28a745;
@@ -130,6 +138,66 @@
     #pdfFrame {
       width:100%; height: calc(100vh - 120px); border:1px solid #dee2e6; border-radius: 12px; background:#f8f9fa;
     }
+    /* Mobile PDF.js Viewer Styles */
+    #pdfJsViewer {
+      width: 100%;
+      height: calc(100vh - 120px);
+      border: 1px solid #dee2e6;
+      border-radius: 12px;
+      background: #f8f9fa;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #pdfCanvasContainer {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 10px;
+      background: #525659;
+    }
+    #pdfCanvas {
+      display: block;
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+      background: white;
+    }
+    #pdfControls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: white;
+      border-top: 1px solid #dee2e6;
+      gap: 12px;
+    }
+    #pdfControls button {
+      padding: 8px 16px;
+      border: 1px solid #dee2e6;
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    #pdfControls button:hover:not(:disabled) {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+    #pdfControls button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    #pageInfo {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
     .toast { margin-top: 10px; font-size: 13px; color: var(--text); }
     a { color: var(--accent); }
   </style>
@@ -169,7 +237,21 @@
   <div id="main-content">
     <section class="panel" aria-label="Manual Viewer">
       <p class="section-title">Manual</p>
+
+      <!-- Desktop: Native iframe PDF viewer -->
       <iframe id="pdfFrame" title="Manual PDF Viewer"></iframe>
+
+      <!-- Mobile: PDF.js canvas viewer -->
+      <div id="pdfJsViewer" style="display:none;">
+        <div id="pdfCanvasContainer">
+          <canvas id="pdfCanvas"></canvas>
+        </div>
+        <div id="pdfControls">
+          <button id="prevPage" aria-label="Previous page">← Previous</button>
+          <span id="pageInfo">Page 1 of 1</span>
+          <button id="nextPage" aria-label="Next page">Next →</button>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -197,7 +279,31 @@
         manualId: null,
         manualTitle: null,
         lastLatencyMs: null,
+        pdfUrl: null,  // Store current PDF URL
       };
+
+      // Detect mobile browsers
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      // PDF.js viewer elements and state
+      const pdfJsViewer = document.getElementById('pdfJsViewer');
+      const pdfCanvas = document.getElementById('pdfCanvas');
+      const pdfCanvasContainer = document.getElementById('pdfCanvasContainer');
+      const prevPageBtn = document.getElementById('prevPage');
+      const nextPageBtn = document.getElementById('nextPage');
+      const pageInfoSpan = document.getElementById('pageInfo');
+
+      let pdfDoc = null;
+      let currentPage = 1;
+
+      // Show appropriate viewer based on device
+      if (isMobile) {
+        pdfFrame.style.display = 'none';
+        pdfJsViewer.style.display = 'flex';
+      } else {
+        pdfFrame.style.display = 'block';
+        pdfJsViewer.style.display = 'none';
+      }
 
       function log(msg) {
         const ts = new Date().toISOString().split('T')[1].replace('Z','');
@@ -214,6 +320,82 @@
       
       function clearToast() {
         toastEl.textContent = '';
+      }
+
+      // PDF.js rendering functions for mobile
+      async function renderPDFPage(pageNum) {
+        if (!pdfDoc) return;
+
+        try {
+          const page = await pdfDoc.getPage(pageNum);
+          const context = pdfCanvas.getContext('2d');
+
+          // Calculate responsive scale based on container width
+          const containerWidth = pdfCanvasContainer.clientWidth - 20; // Account for padding
+          const viewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(containerWidth / viewport.width, 2.5); // Max scale 2.5x
+          const scaledViewport = page.getViewport({ scale: scale });
+
+          pdfCanvas.height = scaledViewport.height;
+          pdfCanvas.width = scaledViewport.width;
+
+          // Render PDF page
+          await page.render({
+            canvasContext: context,
+            viewport: scaledViewport
+          }).promise;
+
+          // Update UI
+          currentPage = pageNum;
+          pageInfoSpan.textContent = `Page ${pageNum} of ${pdfDoc.numPages}`;
+          prevPageBtn.disabled = (pageNum <= 1);
+          nextPageBtn.disabled = (pageNum >= pdfDoc.numPages);
+
+          log(`Rendered page ${pageNum} of ${pdfDoc.numPages}`);
+        } catch (err) {
+          log(`Error rendering page ${pageNum}: ${err.message}`);
+        }
+      }
+
+      async function loadPDFWithPDFjs(url, pageNum = 1) {
+        try {
+          log('Loading PDF with PDF.js...');
+          const loadingTask = pdfjsLib.getDocument(url);
+          pdfDoc = await loadingTask.promise;
+          log(`PDF loaded: ${pdfDoc.numPages} pages`);
+          await renderPDFPage(pageNum);
+        } catch (err) {
+          log(`PDF.js load error: ${err.message}`);
+          toast('Failed to load PDF.');
+        }
+      }
+
+      // Navigation controls for mobile PDF viewer
+      if (isMobile) {
+        prevPageBtn.addEventListener('click', async () => {
+          if (currentPage > 1) {
+            await renderPDFPage(currentPage - 1);
+          }
+        });
+
+        nextPageBtn.addEventListener('click', async () => {
+          if (currentPage < pdfDoc.numPages) {
+            await renderPDFPage(currentPage + 1);
+          }
+        });
+      }
+
+      // Unified PDF loading function for both desktop and mobile
+      async function loadPDF(url, pageNum = 1) {
+        state.pdfUrl = url;
+
+        if (isMobile) {
+          // Use PDF.js for mobile
+          await loadPDFWithPDFjs(url, pageNum);
+        } else {
+          // Use native iframe for desktop
+          pdfFrame.src = url + '#page=' + pageNum;
+        }
       }
 
       function chooseMime() {
@@ -372,15 +554,18 @@
             state.manualTitle = data.title || data.filename || ('Manual ' + data.manual_id);
             manualVal.textContent = state.manualTitle;
 
-            const pdfUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
-            fetch(pdfUrl)
-              .then(res => res.blob())
-              .then(blob => {
-                const objectUrl = URL.createObjectURL(blob);
-                pdfFrame.src = objectUrl + '#page=1';
-              });
-            toast('Manual loaded: ' + state.manualTitle);
-            log('Loaded PDF: ' + pdfUrl);
+            // Fetch PDF URL from backend (returns JSON with presigned URL)
+            const pdfApiUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
+            const pdfResp = await fetch(pdfApiUrl);
+            if (pdfResp.ok) {
+              const pdfData = await pdfResp.json();
+              await loadPDF(pdfData.url, 1);
+              toast('Manual loaded: ' + state.manualTitle);
+              log('Loaded PDF from: ' + pdfApiUrl);
+            } else {
+              toast('Failed to load PDF.');
+              log('PDF fetch error: ' + pdfResp.status);
+            }
           } else {
             log('Manual already loaded: ' + state.manualTitle + '. Treating as search.');
             await askWithinManual(query);
@@ -425,19 +610,14 @@
         }
       }
 
-      function jumpToPage(pageNum) {
-        if (!state.manualId) return;
-        const base = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
-        // Force reload with timestamp to ensure browser processes the page change
-        const timestamp = new Date().getTime();
-        const newSrc = base + '?t=' + timestamp + '#page=' + encodeURIComponent(pageNum);
-        
-        fetch(newSrc)
-          .then(res => res.blob())
-          .then(blob => {
-            const objectUrl = URL.createObjectURL(blob);
-            pdfFrame.src = objectUrl + '#page=' + encodeURIComponent(pageNum);
-          });
+      async function jumpToPage(pageNum) {
+        if (!state.pdfUrl) {
+          log('Cannot jump to page: PDF not loaded');
+          return;
+        }
+
+        // Use the already-loaded PDF URL with new page number
+        await loadPDF(state.pdfUrl, pageNum);
         log('Viewer navigated to page ' + pageNum);
       }
 

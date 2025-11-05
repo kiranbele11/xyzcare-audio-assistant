@@ -394,7 +394,45 @@
           await loadPDFWithPDFjs(url, pageNum);
         } else {
           // Use native iframe for desktop
-          pdfFrame.src = url + '#page=' + pageNum;
+          const targetUrl = url + '#page=' + pageNum;
+
+          // Extract base URLs without fragments or query params for comparison
+          const getCurrentBase = () => {
+            if (!pdfFrame.src) return '';
+            try {
+              const srcUrl = new URL(pdfFrame.src, window.location.origin);
+              return srcUrl.origin + srcUrl.pathname;
+            } catch {
+              return pdfFrame.src.split('#')[0].split('?')[0];
+            }
+          };
+
+          const getTargetBase = () => {
+            try {
+              const targetFullUrl = new URL(targetUrl, window.location.origin);
+              return targetFullUrl.origin + targetFullUrl.pathname;
+            } catch {
+              return targetUrl.split('#')[0].split('?')[0];
+            }
+          };
+
+          const currentBase = getCurrentBase();
+          const targetBase = getTargetBase();
+
+          if (currentBase && currentBase === targetBase) {
+            // Same PDF, just changing page
+            // Force reload by briefly setting to empty, then to new URL
+            const temp = pdfFrame.src;
+            pdfFrame.src = '';
+            setTimeout(() => {
+              pdfFrame.src = targetUrl;
+              log('Reloaded iframe with new page fragment: ' + targetUrl);
+            }, 50);
+          } else {
+            // Different PDF - normal load
+            pdfFrame.src = targetUrl;
+            log('Loaded new PDF in iframe: ' + targetUrl);
+          }
         }
       }
 
@@ -505,16 +543,15 @@
           if (!state.manualId) {
             await resolveManual(transcript);
           } else {
-            // Check if user is trying to switch manuals by mentioning another product
-            // If transcript looks like a manual name, try to resolve it
+            // Check if user wants to open/switch manuals
+            // Only trigger on explicit "manual" keyword or action verbs "open"/"show"
             const lowerTranscript = transcript.toLowerCase();
-            const manualKeywords = ['manual', 'fridge', 'refrigerator', 'pixel', 'fold', 'pro',
-                                    'touchscreen', 'screen', 'display', 'battery', 'camera',
-                                    'calibration', 'repair', 'phone', 'conditioner', 'ac'];
-            const hasManualKeyword = manualKeywords.some(kw => lowerTranscript.includes(kw));
+            const isManualTrigger = lowerTranscript.includes('manual') ||
+                                   lowerTranscript.startsWith('open ') ||
+                                   lowerTranscript.startsWith('show ');
 
-            if (hasManualKeyword && !lowerTranscript.includes('?') && !lowerTranscript.includes('how') && !lowerTranscript.includes('what')) {
-              // Likely trying to switch manuals
+            if (isManualTrigger) {
+              // User wants to switch manuals
               await resolveManual(transcript);
             } else {
               // Search within current manual
@@ -616,9 +653,15 @@
           return;
         }
 
-        // Use the already-loaded PDF URL with new page number
-        await loadPDF(state.pdfUrl, pageNum);
-        log('Viewer navigated to page ' + pageNum);
+        if (isMobile && pdfDoc) {
+          // Mobile: Already have PDF loaded, just render the new page
+          await renderPDFPage(pageNum);
+          log('Viewer navigated to page ' + pageNum);
+        } else {
+          // Desktop: Update iframe src with new page fragment
+          await loadPDF(state.pdfUrl, pageNum);
+          log('Viewer navigated to page ' + pageNum);
+        }
       }
 
       // Wire UI

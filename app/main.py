@@ -534,37 +534,40 @@ async def manual_pdf(manual_id: str):
     use_s3 = os.getenv("USE_S3", "false").lower() == "true"
     
     if not use_s3:
-        # Fallback to local file serving (for local development)
+        # Local mode: return JSON with URL to direct file endpoint
         logger.info(f"manual_pdf called for manual_id: {manual_id} (local mode)")
         manuals = _load_manuals_config()
         match = next((m for m in manuals if m.get("manual_id") == manual_id), None)
-        
+
         if not match:
             logger.warning(f"Manual '{manual_id}' not found in alias map")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual not found")
-        
+
         filename = match.get("filename") or f"{manual_id}.pdf"
         pdf_path = (MANUALS_DIR / filename).resolve()
         logger.info(f"Resolved PDF path: {pdf_path}")
-        
+
         # Security: ensure path is within MANUALS_DIR
         try:
             pdf_path.relative_to(MANUALS_DIR)
         except Exception:
             logger.error(f"PDF path {pdf_path} is not within MANUALS_DIR {MANUALS_DIR}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manual path")
-        
+
         if not pdf_path.exists():
             logger.warning(f"PDF file not found at {pdf_path}")
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Manual PDF not found. PDFs are not available in this deployment."
             )
-        
-        logger.info(f"Serving PDF from local filesystem: {pdf_path}")
-        response = FileResponse(str(pdf_path), media_type="application/pdf")
-        response.headers["Content-Disposition"] = "inline"
-        return response
+
+        # Return JSON with URL to direct file serving endpoint
+        logger.info(f"Returning local PDF URL for manual '{manual_id}'")
+        return JSONResponse({
+            "url": f"/api/manual/{manual_id}/pdf/file",
+            "manual_id": manual_id,
+            "expires_in": None  # Local files don't expire
+        }, status_code=200)
     
     # S3 mode: generate presigned URL
     logger.info(f"manual_pdf called for manual_id: {manual_id} (S3 mode)")
@@ -657,6 +660,43 @@ async def manual_pdf(manual_id: str):
         )
 
 
+@app.get("/api/manual/{manual_id}/pdf/file")
+async def manual_pdf_file(manual_id: str):
+    """
+    Serve the actual PDF file from local filesystem (local development only).
+    Used by frontend when USE_S3=false.
+    """
+    logger.info(f"manual_pdf_file called for manual_id: {manual_id}")
+    manuals = _load_manuals_config()
+    match = next((m for m in manuals if m.get("manual_id") == manual_id), None)
+
+    if not match:
+        logger.warning(f"Manual '{manual_id}' not found in alias map")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual not found")
+
+    filename = match.get("filename") or f"{manual_id}.pdf"
+    pdf_path = (MANUALS_DIR / filename).resolve()
+    logger.info(f"Resolved PDF path: {pdf_path}")
+
+    # Security: ensure path is within MANUALS_DIR
+    try:
+        pdf_path.relative_to(MANUALS_DIR)
+    except Exception:
+        logger.error(f"PDF path {pdf_path} is not within MANUALS_DIR {MANUALS_DIR}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manual path")
+
+    if not pdf_path.exists():
+        logger.warning(f"PDF file not found at {pdf_path}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Manual PDF not found"
+        )
+
+    logger.info(f"Serving PDF file from local filesystem: {pdf_path}")
+    response = FileResponse(str(pdf_path), media_type="application/pdf")
+    response.headers["Content-Disposition"] = "inline"
+    return response
+
 
 @app.post("/api/manual/{manual_id}/search")
 async def manual_search(manual_id: str, request: Request) -> JSONResponse:
@@ -676,9 +716,9 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
 
     # Tunables
     try:
-        fts_top_k = int(os.getenv("FTS_TOP_K", "8"))
+        fts_top_k = int(os.getenv("FTS_TOP_K", "15"))
     except Exception:
-        fts_top_k = 8
+        fts_top_k = 15
 
     session = SessionLocal()
     try:
@@ -689,23 +729,23 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
         # Step 1: Database-specific full-text search shortlist
         candidates: List[Tuple[int, str]] = []  # (page_number, text)
 
-        # Clean question for search - use minimal stop words to preserve technical terms
-        # Only remove articles that don't add semantic value
-        minimal_stop_words = {'the', 'a', 'an'}
+        # Clean question for search - restore original stop words for better ranking
+        # Removing common question words improves ts_rank scoring
+        stop_words = {'what', 'how', 'when', 'where', 'why', 'who', 'is', 'are', 'the', 'a', 'an', 'to', 'do', 'does'}
         cleaned_question = question.replace('?', ' ').replace('.', ' ').replace(',', ' ')
-        words = [w.strip() for w in cleaned_question.lower().split() if w.strip() and w.lower() not in minimal_stop_words]
+        words = [w.strip() for w in cleaned_question.lower().split() if w.strip() and w.lower() not in stop_words]
         search_query = ' '.join(words) if words else question.replace('"', '').replace('.', ' ').replace('?', ' ')
         logger.info(f"Cleaned search query: '{search_query}' (from: '{question}')")
 
         if db_url.scheme == 'postgresql':
             logger.info(f"Using PostgreSQL search for manual '{manual_id}' with query: '{search_query}'")
-            # Use PostgreSQL full-text search with ts_rank
+            # Use PostgreSQL full-text search with ts_rank_cd (BM25-like) and websearch_to_tsquery
             result = session.execute(
                 text("""
                 SELECT page_number, text_content
                 FROM pages
-                WHERE manual_id = :manual_id AND text_vector @@ plainto_tsquery('english', :query)
-                ORDER BY ts_rank(text_vector, plainto_tsquery('english', :query)) DESC
+                WHERE manual_id = :manual_id AND text_vector @@ websearch_to_tsquery('english', :query)
+                ORDER BY ts_rank_cd(text_vector, websearch_to_tsquery('english', :query), 32) DESC
                 LIMIT :limit
                 """),
                 {
@@ -715,7 +755,9 @@ async def manual_search(manual_id: str, request: Request) -> JSONResponse:
                 }
             )
             rows = result.fetchall()
-            logger.info(f"PostgreSQL FTS returned {len(rows)} candidates.")
+            logger.info(f"PostgreSQL FTS (ts_rank_cd) returned {len(rows)} candidates for query: '{search_query}'")
+            if rows:
+                logger.info(f"Top result: page {rows[0][0]}, text preview: {str(rows[0][1])[:100]}...")
             for row in rows:
                 candidates.append((int(row[0]), row[1] or ""))
 

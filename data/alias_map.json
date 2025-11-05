@@ -18,7 +18,7 @@
       "manual_id": "Fridge",
       "title": "LG Refrigerator Model GR",
       "filename": "Refrigerator_Model_GR.pdf",
-      "aliases": ["Fridge", "Model GR", "Refrigerator GR"],
+      "aliases": ["Model GR", "Refrigerator GR", "LG GR refrigerator", "LG Model GR", "GR series refrigerator"],
       "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance"]
     },
     {
@@ -29,8 +29,12 @@
         "LRSES2706V",
         "LG LRSES2706V",
         "LG fridge LRSES",
+        "LRSES refrigerator",
+        "LRSES model",
+        "LG LRSES",
         "2706V refrigerator",
-        "LG refrigerator 2706"
+        "LG refrigerator 2706",
+        "LG refrigerator LRSES"
       ],
       "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance", "ice maker"]
     },
@@ -42,8 +46,12 @@
         "LFCC22426S",
         "LG LFCC22426S",
         "LG fridge LFCC",
+        "LFCC refrigerator",
+        "LFCC model",
+        "LG LFCC",
         "22426S refrigerator",
-        "LG refrigerator 22426"
+        "LG refrigerator 22426",
+        "LG refrigerator LFCC"
       ],
       "keywords": ["refrigerator", "fridge", "ice", "freezer", "cooling", "compressor", "temperature", "door", "LG", "appliance"]
     },

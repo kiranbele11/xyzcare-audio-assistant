@@ -197,6 +197,33 @@ def _extract_product_from_query(query: str, manuals: List[Dict[str, Any]]) -> Op
 
     logger.debug(f"Product extraction - query_lower: '{query_lower}', query_words: {query_words}")
 
+    # First pass: Check for specific model numbers or aliases in the query
+    # This takes priority over generic keyword matching
+    for manual in manuals:
+        for alias in manual.get("aliases", []):
+            alias_norm = _normalize(alias)
+            # Check for substantial word overlap or substring match
+            alias_words = set(alias_norm.split())
+            word_overlap = len(query_words & alias_words)
+            # If the query contains significant parts of the alias, prioritize it
+            if alias_norm in query_lower or word_overlap >= 2:
+                # Strong match on specific alias
+                score = 2.0 + (word_overlap * 0.2)
+                if score > best_score:
+                    best_score = score
+                    best_match = alias
+                    logger.debug(f"  Manual {manual.get('manual_id')}: strong alias match '{alias}', score: {score:.3f}")
+
+    # If we found a strong alias match, return it
+    if best_score >= 2.0:
+        confidence = min(0.9, best_score / 3.0)
+        logger.info(f"Extracted product '{best_match}' from query via alias match with confidence {confidence:.2f} (score: {best_score:.3f})")
+        return (best_match, confidence)
+
+    # Second pass: Keyword-based matching for technical queries
+    best_match = None
+    best_score = 0.0
+
     for manual in manuals:
         score = 0.0
         keywords = manual.get("keywords", [])

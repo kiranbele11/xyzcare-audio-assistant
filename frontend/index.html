@@ -373,7 +373,12 @@
             manualVal.textContent = state.manualTitle;
 
             const pdfUrl = '/api/manual/' + encodeURIComponent(state.manualId) + '/pdf';
-            pdfFrame.src = pdfUrl + '#page=1';
+            fetch(pdfUrl)
+              .then(res => res.blob())
+              .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                pdfFrame.src = objectUrl + '#page=1';
+              });
             toast('Manual loaded: ' + state.manualTitle);
             log('Loaded PDF: ' + pdfUrl);
           } else {
@@ -426,7 +431,13 @@
         // Force reload with timestamp to ensure browser processes the page change
         const timestamp = new Date().getTime();
         const newSrc = base + '?t=' + timestamp + '#page=' + encodeURIComponent(pageNum);
-        pdfFrame.src = newSrc;
+        
+        fetch(newSrc)
+          .then(res => res.blob())
+          .then(blob => {
+            const objectUrl = URL.createObjectURL(blob);
+            pdfFrame.src = objectUrl + '#page=' + encodeURIComponent(pageNum);
+          });
         log('Viewer navigated to page ' + pageNum);
       }
 
